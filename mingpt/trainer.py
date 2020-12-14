@@ -56,10 +56,10 @@ class Trainer:
         logger.info("saving %s", self.config.ckpt_path)
         torch.save(raw_model.state_dict(), self.config.ckpt_path)
 
-    def train(self):
+    def train(self, optimizer):
         model, config = self.model, self.config
         raw_model = model.module if hasattr(self.model, "module") else model
-        optimizer = raw_model.configure_optimizers(config)
+        # optimizer = raw_model.configure_optimizers(config)
 
         def run_epoch(split):
             is_train = split == 'train'
@@ -128,3 +128,4 @@ class Trainer:
             if self.config.ckpt_path is not None and good_model:
                 best_loss = test_loss
                 self.save_checkpoint()
+

@@ -14,6 +14,8 @@ import torch
 import torch.nn as nn
 from torch.nn import functional as F
 
+import pytorch_lightning as pl
+
 logger = logging.getLogger(__name__)
 
 class GPTConfig:
@@ -22,7 +24,7 @@ class GPTConfig:
     resid_pdrop = 0.1
     attn_pdrop = 0.1
 
-    def __init__(self, vocab_size, block_size, **kwargs):
+    def __init__(self, vocab_size=None, block_size=128, **kwargs):
         self.vocab_size = vocab_size
         self.block_size = block_size
         for k,v in kwargs.items():
@@ -98,53 +100,32 @@ class Block(nn.Module):
         x = x + self.mlp(self.ln2(x))
         return x
 
-class GPT(nn.Module):
+class GPTModule(pl.LightningModule):
     """  the full GPT language model, with a context size of block_size """
-
     def __init__(self, config):
         super().__init__()
+        self.save_hyperparameters(config)
 
-        # input embedding stem
-        self.tok_emb = nn.Embedding(config.vocab_size, config.n_embd)
-        self.pos_emb = nn.Parameter(torch.zeros(1, config.block_size, config.n_embd))
-        self.drop = nn.Dropout(config.embd_pdrop)
-        # transformer
-        self.blocks = nn.Sequential(*[Block(config) for _ in range(config.n_layer)])
-        # decoder head
-        self.ln_f = nn.LayerNorm(config.n_embd)
-        self.head = nn.Linear(config.n_embd, config.vocab_size, bias=False)
+        mconf = GPTConfig(**config.gpt)    # n_layer=8, n_head=8, n_embd=512)
+        self.model = GPT(mconf)
+        self.criterion = nn.CrossEntropyLoss()
+        logger.info("number of parameters: %e", sum(p.numel() for p in self.model.parameters()))
 
-        self.block_size = config.block_size
-        self.apply(self._init_weights)
 
-        logger.info("number of parameters: %e", sum(p.numel() for p in self.parameters()))
-
-    def get_block_size(self):
-        return self.block_size
-
-    def _init_weights(self, module):
-        if isinstance(module, (nn.Linear, nn.Embedding)):
-            module.weight.data.normal_(mean=0.0, std=0.02)
-            if isinstance(module, nn.Linear) and module.bias is not None:
-                module.bias.data.zero_()
-        elif isinstance(module, nn.LayerNorm):
-            module.bias.data.zero_()
-            module.weight.data.fill_(1.0)
-
-    def configure_optimizers(self, train_config):
+    def configure_optimizers(self):
         """
         This long function is unfortunately doing something very simple and is being very defensive:
         We are separating out all parameters of the model into two buckets: those that will experience
         weight decay for regularization and those that won't (biases, and layernorm/embedding weights).
         We are then returning the PyTorch optimizer object.
         """
-
+        module = self.model
         # separate out all parameters to those that will and won't experience regularizing weight decay
         decay = set()
         no_decay = set()
         whitelist_weight_modules = (torch.nn.Linear, )
         blacklist_weight_modules = (torch.nn.LayerNorm, torch.nn.Embedding)
-        for mn, m in self.named_modules():
+        for mn, m in module.named_modules():
             for pn, p in m.named_parameters():
                 fpn = '%s.%s' % (mn, pn) if mn else pn # full param name
 
@@ -162,7 +143,7 @@ class GPT(nn.Module):
         no_decay.add('pos_emb')
 
         # validate that we considered every parameter
-        param_dict = {pn: p for pn, p in self.named_parameters()}
+        param_dict = {pn: p for pn, p in module.named_parameters()}
         inter_params = decay & no_decay
         union_params = decay | no_decay
         assert len(inter_params) == 0, "parameters %s made it into both decay/no_decay sets!" % (str(inter_params), )
@@ -171,11 +152,93 @@ class GPT(nn.Module):
 
         # create the pytorch optimizer object
         optim_groups = [
-            {"params": [param_dict[pn] for pn in sorted(list(decay))], "weight_decay": train_config.weight_decay},
+            {"params": [param_dict[pn] for pn in sorted(list(decay))], "weight_decay": self.hparams.trainer.weight_decay},
             {"params": [param_dict[pn] for pn in sorted(list(no_decay))], "weight_decay": 0.0},
         ]
-        optimizer = torch.optim.AdamW(optim_groups, lr=train_config.learning_rate, betas=train_config.betas)
+        optimizer = torch.optim.AdamW(optim_groups, lr=self.hparams.trainer.learning_rate, betas=self.hparams.trainer.betas)
         return optimizer
+
+    def training_step(self, batch, batch_idx):
+        x, y = batch
+
+        if False:  #self.hparams.classify:
+            clf_logits = self.model(x, classify=True)
+            loss = self.criterion(clf_logits, y)
+        else:
+            logits, loss = self.model(x, y)
+            # loss = self.criterion(logits.view(-1, logits.size(-1)), x.view(-1).long())
+
+        self.log('train_loss', loss, on_step=True, on_epoch=True, prog_bar=True)
+        return {"loss": loss}
+
+    def validation_step(self, batch, batch_idx):
+        x, y = batch
+
+        result = {}
+        if False:  #self.hparams.classify:
+            clf_logits = self.model(x, classify=True)
+            loss = self.criterion(clf_logits, y)
+            _, preds = torch.max(clf_logits, 1)
+            correct = preds == y
+            result.update({"val_loss": loss, "correct": correct})
+        else:
+            logits, _ = self.model(x)
+            logits = logits.view(-1, logits.size(-1))
+            loss = self.criterion(logits, x.view(-1).long())
+            result.update({"val_loss": loss})
+        # self.log('val_loss', loss, on_step=True, on_epoch=True, prog_bar=True)
+        return result
+
+    def validation_epoch_end(self, outs):
+        avg_loss = torch.stack([x["val_loss"] for x in outs]).mean()
+        logs = {"val_loss": avg_loss}
+        return {"val_loss": avg_loss, "log": logs}
+
+    def test_step(self, batch, batch_idx):
+        return self.validation_step(batch, batch_idx)
+
+    def test_epoch_end(self, outs):
+        result = self.validation_epoch_end(outs)
+
+        # replace valid stats with test stats becuase we are reusing function
+        result["log"]["test_loss"] = result["log"].pop("val_loss")
+        result["test_loss"] = result.pop("val_loss")
+        # if self.hparams.classify:
+        #     result["log"]["test_acc"] = result["log"].pop("val_acc")
+        return result
+
+
+
+class GPT(nn.Module):
+    def __init__(self, config):
+        super().__init__()
+
+        # input embedding stem
+        self.tok_emb = nn.Embedding(config.vocab_size, config.n_embd)
+        self.pos_emb = nn.Parameter(torch.zeros(1, config.block_size, config.n_embd))
+        self.drop = nn.Dropout(config.embd_pdrop)
+        # transformer
+        self.blocks = nn.Sequential(*[Block(config) for _ in range(config.n_layer)])
+        # decoder head
+        self.ln_f = nn.LayerNorm(config.n_embd)
+        self.head = nn.Linear(config.n_embd, config.vocab_size, bias=False)
+
+        self.block_size = config.block_size
+        self.apply(self._init_weights)
+
+
+    def get_block_size(self):
+        return self.block_size
+
+    def _init_weights(self, module):
+        if isinstance(module, (nn.Linear, nn.Embedding)):
+            module.weight.data.normal_(mean=0.0, std=0.02)
+            if isinstance(module, nn.Linear) and module.bias is not None:
+                module.bias.data.zero_()
+        elif isinstance(module, nn.LayerNorm):
+            module.bias.data.zero_()
+            module.weight.data.fill_(1.0)
+
 
     def forward(self, idx, targets=None):
         b, t = idx.size()
