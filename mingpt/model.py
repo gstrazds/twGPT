@@ -109,6 +109,7 @@ class GPTModule(pl.LightningModule):
         mconf = GPTConfig(**config.gpt)    # n_layer=8, n_head=8, n_embd=512)
         self.model = GPT(mconf)
         self.criterion = nn.CrossEntropyLoss()
+        self.tokens = 0
         logger.info("number of parameters: %e", sum(p.numel() for p in self.model.parameters()))
 
 
@@ -120,6 +121,7 @@ class GPTModule(pl.LightningModule):
         We are then returning the PyTorch optimizer object.
         """
         module = self.model
+        self.tokens = 0  # reset count of tokens processed
         # separate out all parameters to those that will and won't experience regularizing weight decay
         decay = set()
         no_decay = set()
@@ -155,8 +157,20 @@ class GPTModule(pl.LightningModule):
             {"params": [param_dict[pn] for pn in sorted(list(decay))], "weight_decay": self.hparams.trainer.weight_decay},
             {"params": [param_dict[pn] for pn in sorted(list(no_decay))], "weight_decay": 0.0},
         ]
-        optimizer = torch.optim.AdamW(optim_groups, lr=self.hparams.trainer.learning_rate, betas=self.hparams.trainer.betas)
-        return optimizer
+        optimizer =  torch.optim.AdamW(optim_groups, lr=self.hparams.trainer.learning_rate, betas=self.hparams.trainer.betas)
+        # lr_scheduler = {'scheduler': torch.optim.lr_scheduler.CosineAnnealingLR(
+        #                                 optimizer,
+        #                                 T_max=self.hparams.trainer.final_tokens,
+        #                                 eta_min=self.hparams.trainer.learning_rate*0.05
+        #                                 last_epoch=self.hparams.trainer.final_tokens,
+        #                                 ),
+        #                 'name': 'cos_anneal_lr',
+        #                 'interval': 'step',
+        #                 'frequency': 1}
+
+        self._optimizer = optimizer  # shouldn't be necessary for pt_lightning
+
+        return optimizer  #, lr_scheduler
 
     def training_step(self, batch, batch_idx):
         x, y = batch
@@ -167,9 +181,31 @@ class GPTModule(pl.LightningModule):
         else:
             logits, loss = self.model(x, y)
             # loss = self.criterion(logits.view(-1, logits.size(-1)), x.view(-1).long())
+        self.adjust_learning_rate(y)
 
         self.log('train_loss', loss, on_step=True, on_epoch=True, prog_bar=True)
         return {"loss": loss}
+
+#TODO: decay learning rate
+    def adjust_learning_rate(self, y):
+        # decay the learning rate based on our progress
+        config = self.hparams.trainer
+        if config.lr_decay:
+            self.tokens += (y >= 0).sum()  # number of tokens processed this step (i.e. label is not -100)
+            if self.tokens < config.warmup_tokens:
+                # linear warmup
+                lr_mult = float(self.tokens) / float(max(1, config.warmup_tokens))
+            else:
+                # cosine learning rate decay
+                progress = float(self.tokens - config.warmup_tokens) / float(
+                    max(1, config.final_tokens - config.warmup_tokens))
+                lr_mult = max(0.1, 0.5 * (1.0 + math.cos(math.pi * progress)))
+            lr = config.learning_rate * lr_mult
+            for param_group in self._optimizer.param_groups:
+                param_group['lr'] = lr
+        else:
+            lr = config.learning_rate
+        self.log('learning_rate', lr, on_step=True, on_epoch=False, prog_bar=True)
 
     def validation_step(self, batch, batch_idx):
         x, y = batch
