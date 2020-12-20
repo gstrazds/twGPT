@@ -1,0 +1,48 @@
+# @package _global_
+
+gpus:   # set to a single int n to auto-select n gpus from all available, or to a list of gpu indices e.g. [0,1,2,3]
+  - 0
+#  - 2
+cwd_path: "."   # gets expanded to an absolute path to the original current directory (not the Hydra/runtime working dir)
+use_lightning: True
+
+general:
+  use_cuda: True  # disable this when running on machine without cuda
+  cuda_idx: 0     # set to None to run without using CUDA
+  random_seed: 42
+
+data:
+#  vocab_words: ${cwd_path}/vocabulary/vocab.txt
+#  input: ${cwd_path}/input.txt
+  data_file: ${cwd_path}/mingpt-training-all.pthru
+  tokenizer_file: ${cwd_path}/ftwc_tokenizer.json
+  vocab_size: 0
+  num_workers: 8
+  training:
+    num_tokens: len(dataset)
+
+gpt:
+  block_size: 128  # spatial extent of the model for its context
+  n_layer: 8
+  n_head: 8
+  n_embd: 512
+  embd_pdrop: 0.1
+  resid_pdrop: 0.1
+  attn_pdrop: 0.1
+  vocab_size: 0     # gets filled in after we load the vocabulary
+
+trainer:
+  max_epochs: 2
+  batch_size: 192
+  learning_rate: 6e-4
+  lr_decay: true
+  betas:
+    - 0.9
+    - 0.95
+  grad_norm_clip: 1.0
+  weight_decay: 0.1 # only applied on matmul weights
+  warmup_tokens: 10240  #512*20
+  # update final_tokeans after loading training data
+  final_tokens: 2*${data.training.num_tokens}*${gpt.block_size}
+  num_workers: 4
+
