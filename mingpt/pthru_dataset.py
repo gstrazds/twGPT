@@ -18,7 +18,7 @@ class PlaythroughDataset(Dataset):
         data_size = len(data)
         print("PlaythroughDataset datalen=", data_size)
         self.block_size = block_size
-        self.data = data
+        self.data = list(data)  # make a copy
 
         # chars = sorted(list(set(data)))
         # vocab_size = len(chars)
@@ -94,7 +94,6 @@ class PlaythroughDataModule(LightningDataModule):
         seed: int = 42,
         batch_size: int = 192,
         block_size: int = 128,
-        vocab_size: int = 0,
         *args,
         **kwargs,
     ):
@@ -113,9 +112,9 @@ class PlaythroughDataModule(LightningDataModule):
         self.seed = seed
         self.block_size = block_size
         self.batch_size = batch_size
-        self.vocab_size = vocab_size
         self.train_dataset = None
         self.validation_dataset = None
+        self.vocab_size = 0
 
     def read_and_encode(self, filepath):
         with open(filepath, 'r') as file:
@@ -137,7 +136,7 @@ class PlaythroughDataModule(LightningDataModule):
         self.train_dataset = PlaythroughDataset(encoded_data.ids, self.block_size)  # one line of poem is roughly 50 characters
         if self.val_file:
             encoded_eval_data = self.read_and_encode(self.val_file)
-            self.validation_dataset = PlaythroughDataset(encoded_eval_data.ids, self.block_size)  # one line of poem is roughly 50 characters
+            self.validation_dataset = PlaythroughDataset(encoded_eval_data.ids, self.block_size)
 
     def train_dataloader(self):
         loader = DataLoader(

@@ -1,5 +1,10 @@
 # @package _global_
 
+train_ftwc: True
+resume_from_checkpoint: null  #/home/guntis/work/0_magd3/tw13/minGPT/saved_models/dec18-startofepoch2.ckpt
+val_check_interval: 0.5
+limit_val_batches: 50
+
 gpus:   # set to a single int n to auto-select n gpus from all available, or to a list of gpu indices e.g. [0,1,2,3]
   - 0
 #  - 2
@@ -14,9 +19,10 @@ general:
 data:
 #  vocab_words: ${cwd_path}/vocabulary/vocab.txt
 #  input: ${cwd_path}/input.txt
-  data_file: ${cwd_path}/mingpt-training-all.pthru
+  data_file: ${cwd_path}/tw-cooking-recipe3+take3+cut+go6-Z7L8CvEPsO53iKDg.pthru  #${cwd_path}/mingpt-training-all.pthru
+  val_file: ${cwd_path}/tw-cooking-recipe3+take3+cut+go6-Z7L8CvEPsO53iKDg.pthru  #${cwd_path}/mingpt-valid-all.pthru
+  test_file: ${cwd_path}/mingpt-test-all.pthru
   tokenizer_file: ${cwd_path}/ftwc_tokenizer.json
-  vocab_size: 0
   num_workers: 8
   training:
     num_tokens: len(dataset)
@@ -45,4 +51,8 @@ trainer:
   # update final_tokeans after loading training data
   final_tokens: 2*${data.training.num_tokens}*${gpt.block_size}
   num_workers: 4
+
+eval:
+  checkpoint: ${cwd_path}/saved_models/mingpt-epoch=60-step=00243-val_loss=0.03.ckpt  #mingpt-epoch=820-step=03281-val_loss=0.02.ckpt
+#  ${cwd_path}/saved_models/dec18-startofepoch2.ckpt
 

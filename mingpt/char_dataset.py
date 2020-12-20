@@ -118,6 +118,14 @@ class CharDataModule(LightningDataModule):
         self.train_dataset = None
         self.validation_dataset = None
 
+    @property
+    def vocab_size(self):
+        if self.train_dataset:
+            return self.train_dataset.vocab_size
+        elif self.validation_dataset:
+            return self.validation_dataset.vocab_size
+        return 0
+
     def prepare_data(self):
         """
         """

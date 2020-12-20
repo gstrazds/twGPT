@@ -100,6 +100,21 @@ class Block(nn.Module):
         x = x + self.mlp(self.ln2(x))
         return x
 
+
+from .utils import sample
+def sample_ahead(model, x, n_samples, temperature=1.0, randsampling=False, top_k=None):
+        # y_ids = y.detach().cpu().tolist()
+        # print(f"[{idx}]", _datamodule.tokenizer.decode(y_ids[0:6]), '....',
+        #       _datamodule.tokenizer.decode(y_ids[-5:-1]), "|",
+        #       _datamodule.tokenizer.decode(y_ids[-1:]))
+        x_in = x[None, ...]
+        preds = sample(model, x_in, steps=n_samples, temperature=temperature, sample=randsampling, top_k=top_k)
+        # y_in = y[None,...]
+        # preds, loss = pl_model.model(x_in, y_in)
+        y_out = preds.detach().cpu().tolist()[0]
+        return y_out
+
+
 class GPTModule(pl.LightningModule):
     """  the full GPT language model, with a context size of block_size """
     def __init__(self, config):
@@ -111,7 +126,6 @@ class GPTModule(pl.LightningModule):
         self.criterion = nn.CrossEntropyLoss()
         self.tokens = 0
         logger.info("number of parameters: %e", sum(p.numel() for p in self.model.parameters()))
-
 
     def configure_optimizers(self):
         """
@@ -209,39 +223,45 @@ class GPTModule(pl.LightningModule):
 
     def validation_step(self, batch, batch_idx):
         x, y = batch
+        y_hat, loss = self.model(x, y)
 
-        result = {}
-        if False:  #self.hparams.classify:
-            clf_logits = self.model(x, classify=True)
-            loss = self.criterion(clf_logits, y)
-            _, preds = torch.max(clf_logits, 1)
-            correct = preds == y
-            result.update({"val_loss": loss, "correct": correct})
-        else:
-            logits, _ = self.model(x)
-            logits = logits.view(-1, logits.size(-1))
-            loss = self.criterion(logits, x.view(-1).long())
-            result.update({"val_loss": loss})
-        # self.log('val_loss', loss, on_step=True, on_epoch=True, prog_bar=True)
-        return result
+        # # 1. calculate loss
+        # loss = F.cross_entropy(y_hat, y)
 
-    def validation_epoch_end(self, outs):
-        avg_loss = torch.stack([x["val_loss"] for x in outs]).mean()
-        logs = {"val_loss": avg_loss}
-        return {"val_loss": avg_loss, "log": logs}
+        # 2. log `val_loss`
+        self.log('val_loss', loss, on_step=True, on_epoch=True, prog_bar=True)
+        metrics = {'val_loss': loss} #, 'val_acc': acc}
+
+    # def validation_step(self, batch, batch_idx):
+    #     x, y = batch
+    #     result = {}
+    #     logits, _ = self.model(x)
+    #     logits = logits.view(-1, logits.size(-1))
+    #     loss = self.criterion(logits, x.view(-1).long())
+    #     # self.log('val_loss', loss)
+    #     self.log('val_loss', loss, on_step=True, on_epoch=True, prog_bar=True)
+
+    # def validation_epoch_end(self, outs):
+    #     pass
+    #     # avg_loss = torch.stack([x["val_loss"] for x in outs]).mean()
+    #     # logs = {"val_loss": avg_loss}
+    #     # return {"val_loss": avg_loss, "log": logs}
 
     def test_step(self, batch, batch_idx):
-        return self.validation_step(batch, batch_idx)
+        metrics = self.validation_step(batch, batch_idx)
+        metrics = {'test_loss': metrics['val_loss'], #'test_acc': metrics['val_acc'],
+                   }
+        self.log_dict(metrics)
 
-    def test_epoch_end(self, outs):
-        result = self.validation_epoch_end(outs)
-
-        # replace valid stats with test stats becuase we are reusing function
-        result["log"]["test_loss"] = result["log"].pop("val_loss")
-        result["test_loss"] = result.pop("val_loss")
-        # if self.hparams.classify:
-        #     result["log"]["test_acc"] = result["log"].pop("val_acc")
-        return result
+    # def test_epoch_end(self, outs):
+    #     result = self.validation_epoch_end(outs)
+    #
+    #     # replace valid stats with test stats becuase we are reusing function
+    #     result["log"]["test_loss"] = result["log"].pop("val_loss")
+    #     result["test_loss"] = result.pop("val_loss")
+    #     # if self.hparams.classify:
+    #     #     result["log"]["test_acc"] = result["log"].pop("val_acc")
+    #     return result
 
 
 

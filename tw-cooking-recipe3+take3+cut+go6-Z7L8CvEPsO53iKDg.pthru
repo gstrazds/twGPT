@@ -1,0 +1,231 @@
+
+>>>[ start ]<<<
+--------- Do : find kitchen , read cookbook , eat meal .
+-= bathroom =-
+ON toilet : nothing ;
+
+---Exits---
+west to unknown ;
+
+
+>>>[ go west ]<<<
+You go west.
+-= corridor =-
+
+---Exits---
+east to bathroom ;
+south to unknown ;
+
+
+>>>[ go south ]<<<
+You go south.
+-= livingroom =-
+ON sofa : nothing ;
+
+---Exits---
+east to unknown ;
+north to corridor ;
+west to unknown ;
+
+
+>>>[ go west ]<<<
+You go west.
+-= bedroom =-
+ON bed : nothing ;
+
+---Exits---
+east to livingroom ;
+
+
+>>>[ go east ]<<<
+You go east.
+-= livingroom =-
+ON sofa : nothing ;
+
+---Exits---
+east to unknown ;
+north to corridor ;
+west to bedroom ;
+
+
+>>>[ go east ]<<<
+You go east.
+-= kitchen =-
+IN +open fridge : parsley ;
+IN +closed oven : unknown ;
+ON table : cookbook ;
+ON counter : +roasted purple potato , +raw red potato , knife ;
+ON stove : nothing ;
+
+---Exits---
+east +open plain door to unknown ;
+west to livingroom ;
+
+
+>>>[ open oven ]<<<
+You open the oven.
+-= kitchen =-
+IN +open fridge : parsley ;
+IN +open oven : nothing ;
+ON table : cookbook ;
+ON counter : +roasted purple potato , +raw red potato , knife ;
+ON stove : nothing ;
+
+---Exits---
+east +open plain door to unknown ;
+west to livingroom ;
+
+
+>>>[ read cookbook ]<<<
+You read the recipe --------- Acquire : black pepper , parsley , purple potato ; --------- Do : dice parsley , slice purple potato , roast purple potato , prepare meal ;
+-= kitchen =-
+IN +open fridge : parsley ;
+IN +open oven : nothing ;
+ON table : cookbook ;
+ON counter : +roasted purple potato , +raw red potato , knife ;
+ON stove : nothing ;
+
+---Exits---
+east +open plain door to unknown ;
+west to livingroom ;
+
+
+>>>[ take parsley ]<<<
+You take the parsley from the fridge.
+-= kitchen =-
+IN +open fridge : nothing ;
+IN +open oven : nothing ;
+ON table : cookbook ;
+ON counter : +roasted purple potato , +raw red potato , knife ;
+ON stove : nothing ;
+
+---Exits---
+east +open plain door to unknown ;
+west to livingroom ;
+
+Carrying : parsley ;
+
+>>>[ take knife ]<<<
+You take the knife from the counter.
+-= kitchen =-
+IN +open fridge : nothing ;
+IN +open oven : nothing ;
+ON table : cookbook ;
+ON counter : +roasted purple potato , +raw red potato ;
+ON stove : nothing ;
+
+---Exits---
+east +open plain door to unknown ;
+west to livingroom ;
+
+Carrying : parsley , knife ;
+
+>>>[ dice parsley with knife ]<<<
+You dice the parsley.
+-= kitchen =-
+IN +open fridge : nothing ;
+IN +open oven : nothing ;
+ON table : cookbook ;
+ON counter : +roasted purple potato , +raw red potato ;
+ON stove : nothing ;
+
+---Exits---
+east +open plain door to unknown ;
+west to livingroom ;
+
+Carrying : +diced parsley , knife ;
+
+>>>[ take purple potato ]<<<
+You take the purple potato from the counter.
+-= kitchen =-
+IN +open fridge : nothing ;
+IN +open oven : nothing ;
+ON table : cookbook ;
+ON counter : +raw red potato ;
+ON stove : nothing ;
+
+---Exits---
+east +open plain door to unknown ;
+west to livingroom ;
+
+Carrying : +diced parsley , knife , +roasted purple potato ;
+
+>>>[ slice purple potato with knife ]<<<
+You slice the purple potato.
+-= kitchen =-
+IN +open fridge : nothing ;
+IN +open oven : nothing ;
+ON table : cookbook ;
+ON counter : +raw red potato ;
+ON stove : nothing ;
+
+---Exits---
+east +open plain door to unknown ;
+west to livingroom ;
+
+Carrying : +diced parsley , knife , +roasted +sliced purple potato ;
+
+>>>[ go east ]<<<
+You go east.
+-= pantry =-
+ON shelf : black pepper , +raw orange bell pepper ;
+
+---Exits---
+west +open plain door to kitchen ;
+
+Carrying : +diced parsley , knife , +roasted +sliced purple potato ;
+
+>>>[ take black pepper ]<<<
+You take the black pepper from the shelf.
+-= pantry =-
+ON shelf : +raw orange bell pepper ;
+
+---Exits---
+west +open plain door to kitchen ;
+
+Carrying : +diced parsley , knife , +roasted +sliced purple potato , black pepper ;
+
+>>>[ go west ]<<<
+You go west.
+-= kitchen =-
+IN +open fridge : nothing ;
+IN +open oven : nothing ;
+ON table : cookbook ;
+ON counter : +raw red potato ;
+ON stove : nothing ;
+
+---Exits---
+east +open plain door to pantry ;
+west to livingroom ;
+
+Carrying : +diced parsley , knife , +roasted +sliced purple potato , black pepper ;
+
+>>>[ prepare meal ]<<<
+You prepare the meal.
+-= kitchen =-
+IN +open fridge : nothing ;
+IN +open oven : nothing ;
+ON table : cookbook ;
+ON counter : +raw red potato ;
+ON stove : nothing ;
+
+---Exits---
+east +open plain door to pantry ;
+west to livingroom ;
+
+Carrying : knife , meal ;
+
+>>>[ eat meal ]<<<
+You eat the meal.
+-= kitchen =-
+IN +open fridge : nothing ;
+IN +open oven : nothing ;
+ON table : cookbook ;
+ON counter : +raw red potato ;
+ON stove : nothing ;
+
+---Exits---
+east +open plain door to pantry ;
+west to livingroom ;
+
+Carrying : knife ;
