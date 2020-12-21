@@ -109,10 +109,7 @@ def sample_ahead(model, x, n_samples, temperature=1.0, randsampling=False, top_k
         #       _datamodule.tokenizer.decode(y_ids[-1:]))
         x_in = x[None, ...]
         preds = sample(model, x_in, steps=n_samples, temperature=temperature, sample=randsampling, top_k=top_k)
-        # y_in = y[None,...]
-        # preds, loss = pl_model.model(x_in, y_in)
-        y_out = preds.detach().cpu().tolist()[0]
-        return y_out
+        return preds.detach()
 
 
 class GPTModule(pl.LightningModule):

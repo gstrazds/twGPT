@@ -111,16 +111,23 @@ def show_sample(model, tokenizer, idx, x, y, n_samples=5):
           tokenizer.decode(y_ids[-5:-1]), "|",
           tokenizer.decode(y_ids[-1:]))
     x_in = x[None, ...]
-    # preds = sample(gpt_pt.model, x_in, steps=sample_ahead, temperature=1.0, sample=False, top_k=None)
-    ## y_in = y[None,...]
-    ## preds, loss = gpt_pt.model(x_in, y_in)
-    # y_out = preds.detach().cpu().tolist()[0]
-    y_out = sample_ahead(model, x, n_samples=n_samples, temperature=1.0, randsampling=False, top_k=None)
+    preds = sample_ahead(model, x, n_samples=n_samples, temperature=1.0, randsampling=False, top_k=None)
+    y_out = preds.detach().cpu().tolist()[0]
     # if idx > 16:
     #     print(x_in.size(), preds.size(), y_out[125:])
     print(f"<{idx}>", tokenizer.decode(y_out[1:7]), '....',
           tokenizer.decode(y_out[-(5 - 1) - n_samples:]))
     print()
+
+# def show_sample(tokenizer, idx, y_predicted, y_ids, n_sampled=5):
+#     # print(f"!{idx}!", tokenizer.decode(y_ids))
+#     print(f"[{idx}]", tokenizer.decode(y_ids[0:6]), '....',
+#           tokenizer.decode(y_ids[-5-n_sampled:-n_sampled]), "|",
+#           tokenizer.decode(y_ids[-n_sampled:]))
+#
+#     print(f"<{idx}>", tokenizer.decode(y_predicted[1:7]), '....',
+#           tokenizer.decode(y_predicted[-5-n_sampled:]))
+#     print()
 
 
 class SamplePredictions(Callback):

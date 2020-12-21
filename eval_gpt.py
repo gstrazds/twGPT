@@ -48,7 +48,7 @@ def main(cfg: DictConfig) -> None:
     train_dataset = _datamodule.train_dataset
     cfg.trainer.final_tokens = 2 * len(train_dataset) * train_dataset.block_size
     cfg.gpt.vocab_size = _datamodule.vocab_size
-    pl_model = GPTModule(cfg)
+    # pl_model = GPTModule(cfg)
 
     # initialize a trainer instance and kick off training
     if False and not cfg.use_lightning:
@@ -62,7 +62,7 @@ def main(cfg: DictConfig) -> None:
 
         context = "O God, O God!"
 
-        pl_model.load_from_checkpoint(checkpoint_path=cfg.eval.checkpoint)
+        pl_model = GPTModule.load_from_checkpoint(checkpoint_path=cfg.eval.checkpoint)
 
         # x = torch.tensor([train_dataset.stoi[s] for s in context], dtype=torch.long)[None, ...].to(trainer.device)
         # y = sample(model, x, 2000, temperature=1.0, sample=True, top_k=10)[0]
@@ -71,33 +71,53 @@ def main(cfg: DictConfig) -> None:
 
         # pl.Trainer(gpus=cfg.gpus).fit(pl_model, _datamodule)
         print(len(_datamodule.train_dataset), len(_datamodule.validation_dataset))
-        dataset = _datamodule.train_dataset
-        datalen = len(dataset)
-        for idx in range(20):
-            x, y = dataset[idx*10]
+        dataset = _datamodule.validation_dataset
+        total_cmd_tokens = 0
+        total_matched = 0
+        for idx in range(len(dataset.cmd_spans)):
+            x, y, cmd_start_pos = dataset.get_cmd_prompt(idx, continuation=-1)
             # print(x, y)  #two tensors, identical except for offset by 1 postiion
-            show_sample(pl_model.model, _datamodule.tokenizer, idx*10, x, y, n_samples=4)
+            # print(cmd_start_pos)
+            cmd_len = len(x) - cmd_start_pos-1
+            x_trunc = x[:cmd_start_pos+1]
+            y_trunc = y[:cmd_start_pos+cmd_len]
+            #y_trunc = y[:cmd_start_pos+1]
+            y_ids = y_trunc.detach().cpu().tolist()
+
+            predicted = sample_ahead(pl_model.model, x_trunc,
+                                     n_samples=cmd_len, temperature=1.0, randsampling=False, top_k=None)
+            y_predicted = predicted.cpu().tolist()[0]
+
+            assert len(y_predicted) == len(y_ids)+1, f"{len(y_ids)} {len(y_predicted)}"
+            assert y_predicted[1] == y_ids[0]
+            n_cmd_tokens = 0
+            n_matched = 0
+            if cmd_len > 1:
+                for i in range(1, cmd_len):
+                    n_cmd_tokens += 1
+                    if y_predicted[-i] == y_ids[-i]:
+                        n_matched += 1
+            if n_matched != n_cmd_tokens:
+                print(f"... matched {n_matched}/{n_cmd_tokens} acc={n_matched / n_cmd_tokens}")
+                show_sample(_datamodule.tokenizer, idx, y_predicted, y_ids, n_sampled=cmd_len)
+
+            total_cmd_tokens += n_cmd_tokens
+            total_matched += n_matched
+        print(f"MATCHED {total_matched}/{total_cmd_tokens} acc={total_matched/total_cmd_tokens}")
 
     finish_time = datetime.datetime.now()
     print(f"================ eval_gpt.py - Finished : {finish_time} -- elapsed: {finish_time-start_time}")
 
 from mingpt.model import sample_ahead
 
-def show_sample(model, tokenizer, idx, x, y, n_samples=5):
-    y_ids = y.detach().cpu().tolist()
+def show_sample(tokenizer, idx, y_predicted, y_ids, n_sampled=5):
+    # print(f"!{idx}!", tokenizer.decode(y_ids))
     print(f"[{idx}]", tokenizer.decode(y_ids[0:6]), '....',
-          tokenizer.decode(y_ids[-5:-1]), "|",
-          tokenizer.decode(y_ids[-1:]))
-    x_in = x[None, ...]
-    # preds = sample(gpt_pt.model, x_in, steps=sample_ahead, temperature=1.0, sample=False, top_k=None)
-    ## y_in = y[None,...]
-    ## preds, loss = gpt_pt.model(x_in, y_in)
-    # y_out = preds.detach().cpu().tolist()[0]
-    y_out = sample_ahead(model, x, n_samples=n_samples, temperature=1.0, randsampling=False, top_k=None)
-    # if idx > 16:
-    #     print(x_in.size(), preds.size(), y_out[125:])
-    print(f"<{idx}>", tokenizer.decode(y_out[1:7]), '....',
-          tokenizer.decode(y_out[-(5 - 1) - n_samples:]))
+          tokenizer.decode(y_ids[-5-n_sampled:-n_sampled]), "|",
+          tokenizer.decode(y_ids[-n_sampled:]))
+
+    print(f"<{idx}>", tokenizer.decode(y_predicted[1:7]), '....',
+          tokenizer.decode(y_predicted[-5-n_sampled:]))
     print()
 
 
