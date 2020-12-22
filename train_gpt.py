@@ -105,29 +105,15 @@ from pytorch_lightning.callbacks import Callback
 
 from mingpt.model import sample_ahead
 
-def show_sample(model, tokenizer, idx, x, y, n_samples=5):
-    y_ids = y.detach().cpu().tolist()
-    print(f"[{idx}]", tokenizer.decode(y_ids[0:6]), '....',
-          tokenizer.decode(y_ids[-5:-1]), "|",
-          tokenizer.decode(y_ids[-1:]))
-    x_in = x[None, ...]
-    preds = sample_ahead(model, x, n_samples=n_samples, temperature=1.0, randsampling=False, top_k=None)
-    y_out = preds.detach().cpu().tolist()[0]
-    # if idx > 16:
-    #     print(x_in.size(), preds.size(), y_out[125:])
-    print(f"<{idx}>", tokenizer.decode(y_out[1:7]), '....',
-          tokenizer.decode(y_out[-(5 - 1) - n_samples:]))
-    print()
+def show_sample(tokenizer, idx, y_predicted, y_ids, n_sampled=5):
+    # print(f"!{idx}!", tokenizer.decode(y_ids))
+    print(f"[{idx}]", tokenizer.decode(y_ids[0:6]), '[....]',
+          tokenizer.decode(y_ids[-5-n_sampled:-n_sampled]), "|",
+          tokenizer.decode(y_ids[-n_sampled:]))
 
-# def show_sample(tokenizer, idx, y_predicted, y_ids, n_sampled=5):
-#     # print(f"!{idx}!", tokenizer.decode(y_ids))
-#     print(f"[{idx}]", tokenizer.decode(y_ids[0:6]), '....',
-#           tokenizer.decode(y_ids[-5-n_sampled:-n_sampled]), "|",
-#           tokenizer.decode(y_ids[-n_sampled:]))
-#
-#     print(f"<{idx}>", tokenizer.decode(y_predicted[1:7]), '....',
-#           tokenizer.decode(y_predicted[-5-n_sampled:]))
-#     print()
+    print(f"<{idx}>", tokenizer.decode(y_predicted[1:7]), '[....]',
+          tokenizer.decode(y_predicted[-5-n_sampled:]))
+    print()
 
 
 class SamplePredictions(Callback):
@@ -138,11 +124,21 @@ class SamplePredictions(Callback):
         self.how_many = how_many
 
     def on_validation_end(self, trainer, pl_module):
+        SAMPLE_LEN = 4
         for idx in range(self.how_many):
             x, y = self.dataset[idx * 10]
             x = x.to(pl_module.device)
             # print(x, y)  #two tensors, identical except for offset by 1 postiion
-            show_sample(pl_module.model, self.tokenizer, idx * 10, x, y, n_samples=4)
+
+            x_trunc = x[:-(SAMPLE_LEN-1)]  # x is already 1 position behind y, so chop off only SAMPLE_LEN-1
+
+            y_ids = y.detach().cpu().tolist()
+            predicted = sample_ahead(pl_module.model, x_trunc,
+                            n_samples=SAMPLE_LEN, temperature=1.0, randsampling=False, top_k=None)
+            y_predicted = predicted.cpu().tolist()[0]
+            show_sample(self.tokenizer, idx*10, y_predicted, y_ids, n_sampled=SAMPLE_LEN)
+
+            # show_sample0(pl_module.model, self.tokenizer, idx * 10, x, y, n_samples=4)
 
 
 if __name__ == '__main__':

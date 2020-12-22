@@ -112,11 +112,11 @@ from mingpt.model import sample_ahead
 
 def show_sample(tokenizer, idx, y_predicted, y_ids, n_sampled=5):
     # print(f"!{idx}!", tokenizer.decode(y_ids))
-    print(f"[{idx}]", tokenizer.decode(y_ids[0:6]), '....',
+    print(f"[{idx}]", tokenizer.decode(y_ids[0:6]), '[....]',
           tokenizer.decode(y_ids[-5-n_sampled:-n_sampled]), "|",
           tokenizer.decode(y_ids[-n_sampled:]))
 
-    print(f"<{idx}>", tokenizer.decode(y_predicted[1:7]), '....',
+    print(f"<{idx}>", tokenizer.decode(y_predicted[1:7]), '[....]',
           tokenizer.decode(y_predicted[-5-n_sampled:]))
     print()
 
