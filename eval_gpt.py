@@ -10,13 +10,8 @@ from omegaconf import OmegaConf, DictConfig
 import pytorch_lightning as pl
 from pytorch_lightning import Trainer, seed_everything
 
-from tqdm import tqdm
-
 from mingpt.pthru_dataset import PlaythroughDataModule
 from mingpt.model import GPTModule
-import mingpt
-from mingpt.trainer import TrainerConfig
-from mingpt.utils import sample
 
 @hydra.main(config_path=".", config_name="pthru-gpt")
 def main(cfg: DictConfig) -> None:
@@ -31,10 +26,6 @@ def main(cfg: DictConfig) -> None:
     print(f"======================================= eval_gpt.py - Start time: {start_time}\n{os.getcwd()}\n")
     pass
 
-    # mconf = GPTConfig(**cfg.gpt)
-    # #                 n_layer=8, n_head=8, n_embd=512)
-    # model = GPT(mconf)
-    #
     _datamodule = PlaythroughDataModule(
         data_file=cfg.data.data_file,
         val_file=cfg.data.val_file,
@@ -48,62 +39,42 @@ def main(cfg: DictConfig) -> None:
     train_dataset = _datamodule.train_dataset
     cfg.trainer.final_tokens = 2 * len(train_dataset) * train_dataset.block_size
     cfg.gpt.vocab_size = _datamodule.vocab_size
-    # pl_model = GPTModule(cfg)
 
-    # initialize a trainer instance and kick off training
-    if False and not cfg.use_lightning:
-        tconf = TrainerConfig(**cfg.trainer)
-        # print(f"Trainer Config: betas={tconf.betas}, final_tokens={tconf.final_tokens}")
-        # trainer = mingpt.trainer.Trainer(pl_model.model, train_dataset, None, tconf)
-        # optimizer = pl_model.configure_optimizers()
-        # trainer.train(optimizer)
-    else:
-        print("USING PyTorch Lightning")
+    print("USING PyTorch Lightning")
 
-        context = "O God, O God!"
+    pl_model = GPTModule.load_from_checkpoint(checkpoint_path=cfg.eval.checkpoint)
 
-        pl_model = GPTModule.load_from_checkpoint(checkpoint_path=cfg.eval.checkpoint)
+    print(len(_datamodule.train_dataset), len(_datamodule.validation_dataset))
+    dataset = _datamodule.validation_dataset
+    total_cmd_tokens = 0
+    total_matched = 0
+    for idx in range(len(dataset.cmd_spans)):
+        x, y, cmd_start_pos = dataset.get_cmd_prompt(idx, continuation=-1)
+        cmd_len = len(x) - cmd_start_pos-1
+        x_trunc = x[:cmd_start_pos+1]
+        y_trunc = y[:cmd_start_pos+cmd_len]
+        y_ids = y_trunc.detach().cpu().tolist()
 
-        # x = torch.tensor([train_dataset.stoi[s] for s in context], dtype=torch.long)[None, ...].to(trainer.device)
-        # y = sample(model, x, 2000, temperature=1.0, sample=True, top_k=10)[0]
-        # completion = ''.join([train_dataset.itos[int(i)] for i in y])
-        # print(completion)
+        predicted = sample_ahead(pl_model.model, x_trunc,
+                                 n_samples=cmd_len, temperature=1.0, randsampling=False, top_k=None)
+        y_predicted = predicted.cpu().tolist()[0]
 
-        # pl.Trainer(gpus=cfg.gpus).fit(pl_model, _datamodule)
-        print(len(_datamodule.train_dataset), len(_datamodule.validation_dataset))
-        dataset = _datamodule.validation_dataset
-        total_cmd_tokens = 0
-        total_matched = 0
-        for idx in range(len(dataset.cmd_spans)):
-            x, y, cmd_start_pos = dataset.get_cmd_prompt(idx, continuation=-1)
-            # print(x, y)  #two tensors, identical except for offset by 1 postiion
-            # print(cmd_start_pos)
-            cmd_len = len(x) - cmd_start_pos-1
-            x_trunc = x[:cmd_start_pos+1]
-            y_trunc = y[:cmd_start_pos+cmd_len]
-            #y_trunc = y[:cmd_start_pos+1]
-            y_ids = y_trunc.detach().cpu().tolist()
+        assert len(y_predicted) == len(y_ids)+1, f"{len(y_ids)} {len(y_predicted)}"
+        assert y_predicted[1] == y_ids[0]
+        n_cmd_tokens = 0
+        n_matched = 0
+        if cmd_len > 1:
+            for i in range(1, cmd_len):
+                n_cmd_tokens += 1
+                if y_predicted[-i] == y_ids[-i]:
+                    n_matched += 1
+        if n_matched != n_cmd_tokens:
+            print(f"... matched {n_matched}/{n_cmd_tokens} acc={n_matched / n_cmd_tokens}")
+            show_sample(_datamodule.tokenizer, idx, y_predicted, y_ids, n_sampled=cmd_len)
 
-            predicted = sample_ahead(pl_model.model, x_trunc,
-                                     n_samples=cmd_len, temperature=1.0, randsampling=False, top_k=None)
-            y_predicted = predicted.cpu().tolist()[0]
-
-            assert len(y_predicted) == len(y_ids)+1, f"{len(y_ids)} {len(y_predicted)}"
-            assert y_predicted[1] == y_ids[0]
-            n_cmd_tokens = 0
-            n_matched = 0
-            if cmd_len > 1:
-                for i in range(1, cmd_len):
-                    n_cmd_tokens += 1
-                    if y_predicted[-i] == y_ids[-i]:
-                        n_matched += 1
-            if n_matched != n_cmd_tokens:
-                print(f"... matched {n_matched}/{n_cmd_tokens} acc={n_matched / n_cmd_tokens}")
-                show_sample(_datamodule.tokenizer, idx, y_predicted, y_ids, n_sampled=cmd_len)
-
-            total_cmd_tokens += n_cmd_tokens
-            total_matched += n_matched
-        print(f"MATCHED {total_matched}/{total_cmd_tokens} acc={total_matched/total_cmd_tokens}")
+        total_cmd_tokens += n_cmd_tokens
+        total_matched += n_matched
+    print(f"MATCHED {total_matched}/{total_cmd_tokens} acc={total_matched/total_cmd_tokens}")
 
     finish_time = datetime.datetime.now()
     print(f"================ eval_gpt.py - Finished : {finish_time} -- elapsed: {finish_time-start_time}")

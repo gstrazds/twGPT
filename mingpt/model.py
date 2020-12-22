@@ -186,12 +186,11 @@ class GPTModule(pl.LightningModule):
     def training_step(self, batch, batch_idx):
         x, y = batch
 
-        if False:  #self.hparams.classify:
-            clf_logits = self.model(x, classify=True)
-            loss = self.criterion(clf_logits, y)
-        else:
-            logits, loss = self.model(x, y)
-            # loss = self.criterion(logits.view(-1, logits.size(-1)), x.view(-1).long())
+        # clf_logits = self.model(x, classify=True)
+        # loss = self.criterion(clf_logits, y)
+        # loss = self.criterion(logits.view(-1, logits.size(-1)), x.view(-1).long())
+
+        logits, loss = self.model(x, y)
         self.adjust_learning_rate(y)
 
         self.log('train_loss', loss, on_step=True, on_epoch=True, prog_bar=True)
@@ -228,6 +227,7 @@ class GPTModule(pl.LightningModule):
         # 2. log `val_loss`
         self.log('val_loss', loss, on_step=True, on_epoch=True, prog_bar=True)
         metrics = {'val_loss': loss} #, 'val_acc': acc}
+        return metrics
 
     # def validation_step(self, batch, batch_idx):
     #     x, y = batch

@@ -30,12 +30,6 @@ def main(cfg: DictConfig) -> None:
 
     start_time = datetime.datetime.now()
     print(f"======================================= train_gpt.py - Start time: {start_time}\n{os.getcwd()}\n")
-    pass
-
-    # mconf = GPTConfig(**cfg.gpt)
-    # #                 n_layer=8, n_head=8, n_embd=512)
-    # model = GPT(mconf)
-    #
 
     if cfg.train_ftwc:
         model_data_id = 'mingpt'
@@ -88,8 +82,11 @@ def main(cfg: DictConfig) -> None:
             mode='min',
         )
         callback_list = [checkpoint_callback]
-        show_samples_callback = SamplePredictions(_datamodule.tokenizer, _datamodule.train_dataset, how_many=5)
-        callback_list.append(show_samples_callback)
+
+        if cfg.train_ftwc:
+            show_samples_callback = SamplePredictions(_datamodule.tokenizer, _datamodule.train_dataset, how_many=5)
+            callback_list.append(show_samples_callback)
+
         trainer = pl.Trainer(gpus=cfg.gpus,
                              val_check_interval=cfg.val_check_interval,
                              limit_val_batches=cfg.limit_val_batches,
@@ -137,8 +134,6 @@ class SamplePredictions(Callback):
                             n_samples=SAMPLE_LEN, temperature=1.0, randsampling=False, top_k=None)
             y_predicted = predicted.cpu().tolist()[0]
             show_sample(self.tokenizer, idx*10, y_predicted, y_ids, n_sampled=SAMPLE_LEN)
-
-            # show_sample0(pl_module.model, self.tokenizer, idx * 10, x, y, n_samples=4)
 
 
 if __name__ == '__main__':
