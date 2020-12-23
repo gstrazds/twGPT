@@ -55,6 +55,7 @@ trainer:
 
 eval:
   checkpoint: ${cwd_path}/saved_models/dec18-startofepoch2.ckpt
+  play_games: False
   # ${cwd_path}/saved_models/mingpt-epoch=60-step=00243-val_loss=0.03.ckpt  #mingpt-epoch=820-step=03281-val_loss=0.02.ckpt
 #  ${cwd_path}/saved_models/dec18-startofepoch2.ckpt
 

@@ -11,7 +11,7 @@ from torch.utils.data import Dataset
 
 class PlaythroughDataset(Dataset):
 
-    def __init__(self, data, block_size, cmd_markers=Tuple[int,int]):
+    def __init__(self, data, block_size, cmd_markers: Tuple[int,int] = None):
         data_size = len(data)
         print("PlaythroughDataset datalen=", data_size)
         self.block_size = block_size

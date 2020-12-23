@@ -1,17 +1,132 @@
 import os
 import glob
+import pathlib
 # import argparse
 from typing import List, Dict, Tuple, Any, Optional
 
 import datetime
 import hydra
 from omegaconf import OmegaConf, DictConfig
+import torch
+import numpy as np
 
 import pytorch_lightning as pl
 from pytorch_lightning import Trainer, seed_everything
+from twutils.playthroughs import TW_VALIDATION_DIR
+from twutils.redis_playthroughs import format_playthrough_step, start_game_for_playthrough, \
+    save_playthrough_step_info_to_redis, step_game_for_playthrough
 
 from mingpt.pthru_dataset import PlaythroughDataModule
-from mingpt.model import GPTModule
+from mingpt.model import GPTModule, sample_ahead
+
+
+def predict_cmd(pl_model, tokenizer, pthru_so_far: str) -> str:
+    N_AHEAD = 9
+    encoded_ptru = tokenizer.encode(pthru_so_far)
+    pthru_token_ids = encoded_ptru.ids[:]
+    if len(pthru_token_ids) >= pl_model.model.block_size:
+        pthru_token_ids = pthru_token_ids[-pl_model.model.block_size + 1:]
+
+    pthru_token_ids.append(tokenizer.token_to_id('>>>['))  # start of command marker
+
+    #     print(pthru_token_ids)
+    x = torch.tensor(np.array(pthru_token_ids))
+    x.to(pl_model.device)
+
+    predicted = sample_ahead(pl_model.model, x,
+                             n_samples=N_AHEAD, temperature=1.0, randsampling=False, top_k=None)
+    y_predicted = predicted.cpu().tolist()[0]
+
+    #     predicted_tokens = tokenizer.decode(y_predicted)
+    #     print(predicted_tokens)
+    y_len = len(y_predicted)
+    inset = max(0, y_len - N_AHEAD - 20)
+    print("****** PROMPT:", tokenizer.decode(y_predicted[inset:-N_AHEAD]))
+    predicted_cmd = y_predicted[-N_AHEAD:]
+    #     print("***", tokenizer.decode(predicted_cmd))
+    end_marker = tokenizer.token_to_id("]<<<")
+    try:
+        idx_ = predicted_cmd.index(end_marker)
+        predicted_cmd = predicted_cmd[:idx_]
+    except ValueError:
+        print("end of command marker NOT FOUND")
+
+    action_str = tokenizer.decode(predicted_cmd)
+    if ' - ' in action_str:
+        action_str = action_str.replace(' - ', '-')
+    print("******* PREDICTED CMD:", action_str)
+    return action_str  # send the command to the game
+
+
+def format_step_json(agent_kg, step_json):
+    step_json = list(step_json.values())[0]
+    prev_action = step_json.get('prev_action', None)
+    if prev_action and " the " in prev_action:
+        prev_action = prev_action.replace(" the ", " ")
+        step_json['prev_action'] = prev_action
+
+    #         kg_descr = get_kg_descr(kg_accum, step_json)
+    kg_descr = agent_kg.describe_room(agent_kg.player_location.name, obs_descr=step_json['description'])
+    outstr, pthru = format_playthrough_step(kg_descr, step_json)
+    return outstr, pthru
+
+
+def play_game(gamename, pl_model, tokenizer, gamedir=TW_VALIDATION_DIR, max_steps=45):
+    _gamefile = f"{gamedir}/{gamename}.z8"
+    _dones = [0]
+    _rewards = [0]
+    num_steps = 0
+    pthru_all = ""
+    next_cmds = ['start']
+
+    gymenv, _obs, _infos = start_game_for_playthrough(_gamefile, passive_oracle_mode=True)
+
+    agent_kg = gymenv.tw_oracles[0].gi.kg
+
+    _redis_ops_, step_json = save_playthrough_step_info_to_redis(gamename, num_steps, _obs, _rewards, _dones, _infos,
+                                                                 next_cmds,
+                                                                 redis=None, do_write=False)
+
+    outstr, pthru = format_step_json(agent_kg, step_json)
+    pthru_all += pthru
+
+    if 'tw_o_step' in _infos:
+        next_cmds = _infos['tw_o_step']
+    else:
+        next_cmds = [None] * len(_obs)
+    predicted_cmd = predict_cmd(pl_model, tokenizer, pthru_all)
+    print(f"Oracle: |{next_cmds[0]}|  Model: |{predicted_cmd}|")
+    next_cmds[0] = predicted_cmd
+    success = False
+    while not _dones[0] and num_steps < max_steps:
+        num_steps += 1
+        _obs, _rewards, _dones, _infos = step_game_for_playthrough(gymenv, next_cmds)
+        _redis_ops_, step_json = save_playthrough_step_info_to_redis(gamename, num_steps, _obs, _rewards, _dones,
+                                                                     _infos, next_cmds,
+                                                                     redis=None, do_write=False)
+        if 'tw_o_step' in _infos:
+            next_cmds = _infos['tw_o_step']
+        else:
+            next_cmds = [None] * len(_obs)
+        print(step_json.keys())
+        assert len(step_json) == 1, f"Expecting one key like 'step_NN' {list(step_json.keys())}"
+        outstr, pthru = format_step_json(agent_kg, step_json)
+        pthru_all += pthru
+
+        predicted_cmd = predict_cmd(pl_model, tokenizer, pthru_all)
+        print(f"Oracle: |{next_cmds[0]}|  Model: |{predicted_cmd}|")
+        if not _dones[0]:
+            next_cmds[0] = predicted_cmd
+        elif next_cmds[0] == 'eat meal':
+            success = True
+        print("============================================")
+        print(pthru)
+        print("============================================")
+    print("%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%")
+    print(pthru_all)
+
+    gymenv.close()
+    return num_steps, success
 
 @hydra.main(config_path=".", config_name="pthru-gpt")
 def main(cfg: DictConfig) -> None:
@@ -36,6 +151,7 @@ def main(cfg: DictConfig) -> None:
         block_size=cfg.gpt.block_size)
 
     _datamodule.prepare_data()
+    tokenizer = _datamodule.tokenizer
     train_dataset = _datamodule.train_dataset
     cfg.trainer.final_tokens = 2 * len(train_dataset) * train_dataset.block_size
     cfg.gpt.vocab_size = _datamodule.vocab_size
@@ -43,43 +159,64 @@ def main(cfg: DictConfig) -> None:
     print("USING PyTorch Lightning")
 
     pl_model = GPTModule.load_from_checkpoint(checkpoint_path=cfg.eval.checkpoint)
+    # pl_model.to(torch.device('cuda'))
 
     print(len(_datamodule.train_dataset), len(_datamodule.validation_dataset))
     dataset = _datamodule.validation_dataset
-    total_cmd_tokens = 0
-    total_matched = 0
-    for idx in range(len(dataset.cmd_spans)):
-        x, y, cmd_start_pos = dataset.get_cmd_prompt(idx, continuation=-1)
-        cmd_len = len(x) - cmd_start_pos-1
-        x_trunc = x[:cmd_start_pos+1]
-        y_trunc = y[:cmd_start_pos+cmd_len]
-        y_ids = y_trunc.detach().cpu().tolist()
+    if cfg.eval.play_games:
+        filelist = glob.glob("/ssd2tb/ftwc/playthru_data/mingpt-valid/*.pthru")
+        print(len(filelist))
+        maybe_ok = 0
+        num_successful = 0
+        total_played = 0
+        n_steps_dict = {}
+        for i, filepath in enumerate(filelist[:]):
+            total_played += 1
+            print(f"[{i}] ------------ PLAYING: {filepath}")
+            gn = pathlib.Path(filepath).stem
+            n_steps, success = play_game(gn, pl_model, tokenizer, gamedir=TW_VALIDATION_DIR)
+            print(f"[{i}] n_steps={n_steps} \t---- {gn} ")
+            if n_steps < 45:
+                maybe_ok += 1
+            if success:
+                num_successful += 1
+            n_steps_dict[gn] = n_steps
+        print(f"PLAYED: {total_played} success={num_successful} maybe_ok={maybe_ok}")
+        print(n_steps_dict)
+    else:
+        total_cmd_tokens = 0
+        total_matched = 0
+        for idx in range(len(dataset.cmd_spans)):
+            x, y, cmd_start_pos = dataset.get_cmd_prompt(idx, continuation=-1)
+            cmd_len = len(x) - cmd_start_pos-1
+            x_trunc = x[:cmd_start_pos+1]
+            y_trunc = y[:cmd_start_pos+cmd_len]
+            y_ids = y_trunc.detach().cpu().tolist()
 
-        predicted = sample_ahead(pl_model.model, x_trunc,
-                                 n_samples=cmd_len, temperature=1.0, randsampling=False, top_k=None)
-        y_predicted = predicted.cpu().tolist()[0]
+            predicted = sample_ahead(pl_model.model, x_trunc,
+                                     n_samples=cmd_len, temperature=1.0, randsampling=False, top_k=None)
+            y_predicted = predicted.cpu().tolist()[0]
 
-        assert len(y_predicted) == len(y_ids)+1, f"{len(y_ids)} {len(y_predicted)}"
-        assert y_predicted[1] == y_ids[0]
-        n_cmd_tokens = 0
-        n_matched = 0
-        if cmd_len > 1:
-            for i in range(1, cmd_len):
-                n_cmd_tokens += 1
-                if y_predicted[-i] == y_ids[-i]:
-                    n_matched += 1
-        if n_matched != n_cmd_tokens:
-            print(f"... matched {n_matched}/{n_cmd_tokens} acc={n_matched / n_cmd_tokens}")
-            show_sample(_datamodule.tokenizer, idx, y_predicted, y_ids, n_sampled=cmd_len)
+            assert len(y_predicted) == len(y_ids)+1, f"{len(y_ids)} {len(y_predicted)}"
+            assert y_predicted[1] == y_ids[0]
+            n_cmd_tokens = 0
+            n_matched = 0
+            if cmd_len > 1:
+                for i in range(1, cmd_len):
+                    n_cmd_tokens += 1
+                    if y_predicted[-i] == y_ids[-i]:
+                        n_matched += 1
+            if n_matched != n_cmd_tokens:
+                print(f"... matched {n_matched}/{n_cmd_tokens} acc={n_matched / n_cmd_tokens}")
+                show_sample(_datamodule.tokenizer, idx, y_predicted, y_ids, n_sampled=cmd_len)
 
-        total_cmd_tokens += n_cmd_tokens
-        total_matched += n_matched
-    print(f"MATCHED {total_matched}/{total_cmd_tokens} acc={total_matched/total_cmd_tokens}")
+            total_cmd_tokens += n_cmd_tokens
+            total_matched += n_matched
+        print(f"MATCHED {total_matched}/{total_cmd_tokens} acc={total_matched/total_cmd_tokens}")
 
     finish_time = datetime.datetime.now()
     print(f"================ eval_gpt.py - Finished : {finish_time} -- elapsed: {finish_time-start_time}")
 
-from mingpt.model import sample_ahead
 
 def show_sample(tokenizer, idx, y_predicted, y_ids, n_sampled=5):
     # print(f"!{idx}!", tokenizer.decode(y_ids))
