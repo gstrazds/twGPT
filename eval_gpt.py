@@ -164,7 +164,7 @@ def main(cfg: DictConfig) -> None:
     print(len(_datamodule.train_dataset), len(_datamodule.validation_dataset))
     dataset = _datamodule.validation_dataset
     if cfg.eval.play_games:
-        filelist = glob.glob("/ssd2tb/ftwc/playthru_data/mingpt-valid/*.pthru")
+        filelist = glob.glob(f"{cfg.eval.pthru_data_dir}/*.pthru")
         print(len(filelist))
         maybe_ok = 0
         num_successful = 0
@@ -174,7 +174,7 @@ def main(cfg: DictConfig) -> None:
             total_played += 1
             print(f"[{i}] ------------ PLAYING: {filepath}")
             gn = pathlib.Path(filepath).stem
-            n_steps, success = play_game(gn, pl_model, tokenizer, gamedir=TW_VALIDATION_DIR)
+            n_steps, success = play_game(gn, pl_model, tokenizer, gamedir=f"{cfg.eval.games_dir}")
             print(f"[{i}] n_steps={n_steps} \t---- {gn} ")
             if n_steps < 45:
                 maybe_ok += 1
@@ -184,9 +184,12 @@ def main(cfg: DictConfig) -> None:
         print(f"PLAYED: {total_played} success={num_successful} maybe_ok={maybe_ok}")
         print(n_steps_dict)
     else:
+        print("eval dataset # cmd_spans =", len(dataset.cmd_spans))
         total_cmd_tokens = 0
         total_matched = 0
         for idx in range(len(dataset.cmd_spans)):
+            if idx %200 == 0 and total_matched == total_cmd_tokens:
+                print(idx, "...")  # let them know we're actually doing something...
             x, y, cmd_start_pos = dataset.get_cmd_prompt(idx, continuation=-1)
             cmd_len = len(x) - cmd_start_pos-1
             x_trunc = x[:cmd_start_pos+1]
@@ -202,7 +205,7 @@ def main(cfg: DictConfig) -> None:
             n_cmd_tokens = 0
             n_matched = 0
             if cmd_len > 1:
-                for i in range(1, cmd_len):
+                for i in range(1, cmd_len+1):
                     n_cmd_tokens += 1
                     if y_predicted[-i] == y_ids[-i]:
                         n_matched += 1

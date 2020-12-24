@@ -18,10 +18,10 @@ general:
 
 data:
 #  vocab_words: ${cwd_path}/vocabulary/vocab.txt
-#  data_file: ${cwd_path}/mingpt-training-all.pthru
-  data_file: ${cwd_path}/tw-cooking-recipe3+take3+cut+go6-Z7L8CvEPsO53iKDg.pthru  #
-  val_file: ${cwd_path}/mingpt-training-all.pthru
-  #val_file: #${cwd_path}/mingpt-valid-all.pthru
+  data_file: ${cwd_path}/mingpt-training-all.pthru
+  # data_file: ${cwd_path}/tw-cooking-recipe3+take3+cut+go6-Z7L8CvEPsO53iKDg.pthru  #
+  val_file: ${cwd_path}/mingpt-valid-all.pthru
+  # val_file: ${cwd_path}/mingpt-training-all.pthru
   test_file: ${cwd_path}/mingpt-test-all.pthru
   tokenizer_file: ${cwd_path}/ftwc_tokenizer.json
   num_workers: 8
@@ -54,8 +54,10 @@ trainer:
   num_workers: 4
 
 eval:
+  # ${cwd_path}/saved_models/mingpt-epoch=60-step=00243-val_loss=0.03.ckpt  #mingpt-epoch=820-step=03281-val_loss=0.02.ckpt
+  # ${cwd_path}/saved_models/dec18-startofepoch2.ckpt
   checkpoint: ${cwd_path}/saved_models/dec18-startofepoch2.ckpt
   play_games: False
-  # ${cwd_path}/saved_models/mingpt-epoch=60-step=00243-val_loss=0.03.ckpt  #mingpt-epoch=820-step=03281-val_loss=0.02.ckpt
-#  ${cwd_path}/saved_models/dec18-startofepoch2.ckpt
+  pthru_data_dir: /ssd2tb/ftwc/playthru_data/mingpt-valid
+  games_dir: /ssd2tb/ftwc/games/valid/
 
