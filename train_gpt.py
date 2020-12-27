@@ -78,7 +78,7 @@ def main(cfg: DictConfig) -> None:
             monitor='val_loss',
             # dirpath='my/path/',
             filename=model_data_id+'-{epoch:02d}-{step:05d}-{val_loss:.2f}',
-            save_top_k=3,
+            save_top_k=6,
             mode='min',
         )
         callback_list = [checkpoint_callback]

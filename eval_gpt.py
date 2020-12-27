@@ -14,7 +14,7 @@ import pytorch_lightning as pl
 from pytorch_lightning import Trainer, seed_everything
 from twutils.playthroughs import TW_VALIDATION_DIR
 from twutils.redis_playthroughs import format_playthrough_step, start_game_for_playthrough, \
-    save_playthrough_step_info_to_redis, step_game_for_playthrough
+    playthrough_step_to_json, step_game_for_playthrough
 
 from mingpt.pthru_dataset import PlaythroughDataModule
 from mingpt.model import GPTModule, sample_ahead
@@ -67,7 +67,9 @@ def format_step_json(agent_kg, step_json):
 
     #         kg_descr = get_kg_descr(kg_accum, step_json)
     kg_descr = agent_kg.describe_room(agent_kg.player_location.name, obs_descr=step_json['description'])
-    outstr, pthru = format_playthrough_step(kg_descr, step_json)
+    # simplify_raw_obs_feedback=False because we start_game_for_playthrough(raw_obs_feedback=False)
+    # and thus, the ConsistentFeedbackWrapper already does exactly the same thing at each game step
+    outstr, pthru = format_playthrough_step(kg_descr, step_json, simplify_raw_obs_feedback=False)
     return outstr, pthru
 
 
@@ -79,13 +81,16 @@ def play_game(gamename, pl_model, tokenizer, gamedir=TW_VALIDATION_DIR, max_step
     pthru_all = ""
     next_cmds = ['start']
 
-    gymenv, _obs, _infos = start_game_for_playthrough(_gamefile, passive_oracle_mode=True)
+    gymenv, _obs, _infos = start_game_for_playthrough(_gamefile,
+                                                      raw_obs_feedback=False,  # simplify obs and feedback text
+                                                      passive_oracle_mode=True)
 
     agent_kg = gymenv.tw_oracles[0].gi.kg
 
-    _redis_ops_, step_json = save_playthrough_step_info_to_redis(gamename, num_steps, _obs, _rewards, _dones, _infos,
-                                                                 next_cmds,
-                                                                 redis=None, do_write=False)
+    step_json = playthrough_step_to_json(next_cmds, _dones, _infos, _obs, _rewards, num_steps)
+        # save_playthrough_step_info_to_redis(gamename, num_steps, _obs, _rewards, _dones, _infos,
+        #                                                          next_cmds,
+        #                                                          redis=None, do_write=False)
 
     outstr, pthru = format_step_json(agent_kg, step_json)
     pthru_all += pthru
@@ -101,9 +106,10 @@ def play_game(gamename, pl_model, tokenizer, gamedir=TW_VALIDATION_DIR, max_step
     while not _dones[0] and num_steps < max_steps:
         num_steps += 1
         _obs, _rewards, _dones, _infos = step_game_for_playthrough(gymenv, next_cmds)
-        _redis_ops_, step_json = save_playthrough_step_info_to_redis(gamename, num_steps, _obs, _rewards, _dones,
-                                                                     _infos, next_cmds,
-                                                                     redis=None, do_write=False)
+        step_json = playthrough_step_to_json(next_cmds, _dones, _infos, _obs, _rewards, num_steps)
+        # _redis_ops_, step_json = save_playthrough_step_info_to_redis(gamename, num_steps, _obs, _rewards, _dones,
+        #                                                              _infos, next_cmds,
+        #                                                              redis=None, do_write=False)
         if 'tw_o_step' in _infos:
             next_cmds = _infos['tw_o_step']
         else:
