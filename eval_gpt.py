@@ -92,7 +92,7 @@ def play_game(gamename, pl_model, tokenizer, gamedir=TW_VALIDATION_DIR, max_step
         #                                                          next_cmds,
         #                                                          redis=None, do_write=False)
 
-    outstr, pthru = format_step_json(agent_kg, step_json)
+    _, pthru = format_step_json(agent_kg, step_json)
     pthru_all += pthru
 
     if 'tw_o_step' in _infos:
@@ -116,7 +116,7 @@ def play_game(gamename, pl_model, tokenizer, gamedir=TW_VALIDATION_DIR, max_step
             next_cmds = [None] * len(_obs)
         print(step_json.keys())
         assert len(step_json) == 1, f"Expecting one key like 'step_NN' {list(step_json.keys())}"
-        outstr, pthru = format_step_json(agent_kg, step_json)
+        _, pthru = format_step_json(agent_kg, step_json)
         pthru_all += pthru
 
         predicted_cmd = predict_cmd(pl_model, tokenizer, pthru_all)
@@ -167,7 +167,7 @@ def main(cfg: DictConfig) -> None:
     pl_model = GPTModule.load_from_checkpoint(checkpoint_path=cfg.eval.checkpoint)
     # pl_model.to(torch.device('cuda'))
 
-    print(len(_datamodule.train_dataset), len(_datamodule.validation_dataset))
+    print("Training dataset length:", len(_datamodule.train_dataset), "Validation:", len(_datamodule.validation_dataset))
     dataset = _datamodule.validation_dataset
     if cfg.eval.play_games:
         filelist = glob.glob(f"{cfg.eval.pthru_data_dir}/*.pthru")
@@ -191,9 +191,32 @@ def main(cfg: DictConfig) -> None:
         print(n_steps_dict)
     else:
         print("eval dataset # cmd_spans =", len(dataset.cmd_spans))
+        for i in range(5):
+            num_steps = dataset.get_num_steps(i)
+            game_span = dataset.game_spans[i]
+            print("Game", i, "num_steps:", num_steps, game_span)
+            for j in range(num_steps):
+                print(f"\tcmd_span[{game_span[0]+j}] {dataset.cmd_spans[game_span[0]+j]}")
+            print("Game", i, "token span:", dataset.get_token_idxs(i))
+            print()
+        # print the same info for the last game in the dataset
+        i = dataset.num_games - 1
+        num_steps = dataset.get_num_steps(i)
+        game_span = dataset.game_spans[i]
+        print("Game", i, "num_steps:", num_steps, game_span)
+        for j in range(num_steps):
+            print(f"\tcmd_span[{game_span[0]+j}] {dataset.cmd_spans[game_span[0]+j]}")
+        last_range, cmd0_len, cmd1_len = dataset.get_token_idxs(i)
+        print("Game", i, "token span:", last_range, cmd0_len, cmd1_len)
+        token_list = dataset.data[last_range[0]:last_range[1]]
+        print(_datamodule.tokenizer.decode(token_list))
+
+
+        print()
+
         total_cmd_tokens = 0
         total_matched = 0
-        for idx in range(len(dataset.cmd_spans)):
+        for idx in range(1, len(dataset.cmd_spans)):   # skip the initial 'start' command
             if idx %200 == 0 and total_matched == total_cmd_tokens:
                 print(idx, "...")  # let them know we're actually doing something...
             x, y, cmd_start_pos = dataset.get_cmd_prompt(idx, continuation=-1)
@@ -207,7 +230,7 @@ def main(cfg: DictConfig) -> None:
             y_predicted = predicted.cpu().tolist()[0]
 
             assert len(y_predicted) == len(y_ids)+1, f"{len(y_ids)} {len(y_predicted)}"
-            assert y_predicted[1] == y_ids[0]
+            assert y_predicted[1] == y_ids[0], f"{y_predicted[0:5]} {y_ids[0:5]}"
             n_cmd_tokens = 0
             n_matched = 0
             if cmd_len > 1:

@@ -9,14 +9,20 @@ from torch.nn import functional as F
 import math
 from torch.utils.data import Dataset
 
+def _span_len(span):
+    return span[1]-span[0]+1
+
 class PlaythroughDataset(Dataset):
 
-    def __init__(self, data, block_size, cmd_markers: Tuple[int,int] = None):
+    def __init__(self, data, block_size, cmd_markers: Tuple[int,int] = None, game_start_tok:int = None):
         data_size = len(data)
         print("PlaythroughDataset datalen=", data_size)
         self.block_size = block_size
         self.data = np.array(data)  # make a copy of the given list of token ids
         self.cmd_spans = None
+        self.game_spans = []  # each span (index in cmd_spans of game start, index into cmd_spans of start of next game)
+        self.game_start_tok = game_start_tok
+
         if cmd_markers:
             self.cmd_start = cmd_markers[0]
             self.cmd_end = cmd_markers[1]
@@ -27,17 +33,37 @@ class PlaythroughDataset(Dataset):
                     if cmd_end_idxs.size < cmd_start_idxs.size:  # fewer end markers than starts
                         cmd_start_idxs = cmd_start_idxs[:cmd_end_idxs.size]  # truncate to same length
                     np_spans = np.stack((cmd_start_idxs, cmd_end_idxs), axis=1)
-                    if np_spans[0][0] == 0:
-                        np_spans = np_spans[1:]  # skip initial 'start' command
+                    # if np_spans[0][0] == 0:
+                    #     np_spans = np_spans[1:]  # skip initial 'start' command
                     self.cmd_spans = np_spans
                     print("PlaythroughDataset cmd_spans =", self.cmd_spans)
-                    for span in self.cmd_spans:
+                    current_game = [None, None]
+                    for ispan, span in enumerate(self.cmd_spans):
                         assert np.all(span[0] < span[1]), f"Bad dataset: inconsistent cmd markers: {self.cmd_spans}"
+                        if self.data[span[0]+1] == game_start_tok:
+                            if self.data[span[0]+2] != self.cmd_end:
+                                print("WARNING: skipping false start", span)
+                                continue
+                            if current_game[0] is None:
+                                current_game[0] = ispan
+                            elif current_game[1] is None:
+                                current_game[1] = ispan
+                                self.game_spans.append((current_game[0], current_game[1]))
+                                current_game = [ispan, None]
+                            else:
+                                assert False, f"Shouldn't be possible: {current_game} {ispan} {span}"
+                    assert ispan == len(self.cmd_spans)-1, f"{ispan} {len(self.cmd_spans)}"
+                    if current_game[0] is not None:
+                        assert current_game[1] is None, f"{current_game} {ispan} {span}"
+                        self.game_spans.append((current_game[0], -1))
+                    print("####################  # Games in dataset:", len(self.game_spans))
+                    print(self.game_spans[0:3], self.game_spans[-2:])
         else:
             self.cmd_start = None
             self.cmd_end = None
             self.cmd_spans = None
 
+        self.build_index()
         # chars = sorted(list(set(data)))
         # vocab_size = len(chars)
         # self.vocab_size = vocab_size
@@ -45,11 +71,74 @@ class PlaythroughDataset(Dataset):
         # self.stoi = { ch:i for i,ch in enumerate(chars) }
         # self.itos = { i:ch for i,ch in enumerate(chars) }
 
+    @property
+    def num_games(self):
+        return len(self.game_spans)
+
+    def get_num_steps(self, igame:int):  # returns number of steps in the playthrough data for a single game
+        if igame < 0 or igame >= len(self.game_spans):
+            return None
+        game_span = self.game_spans[igame]
+        if game_span[1] < 0:  # last game in the dataset
+            return len(self.cmd_spans) - game_span[0]
+        return game_span[1] - game_span[0]  # number of cmd_spans
+
+
+    def get_token_idxs(self, igame, start_step=0, end_step=-1, inclusive=(True,True)):
+        # returns a span: start and end index into the token id data
+        # inclusive[0]: include the command sequence at the beginning of the start_step
+        # inclusive[1]: include the command sequence at the end of the end_step (if there is one)
+
+        assert 0 <= igame < len(self.game_spans), f"{igame} {len(self.game_spans)}"
+        game_span = self.game_spans[igame]
+        num_game_steps = self.get_num_steps(igame)
+        if end_step < 0:
+            assert end_step == -1
+            end_step = num_game_steps
+        elif start_step >= num_game_steps or end_step > num_game_steps:
+            print(f"WARNING: get_token_idxs({start_step}, {end_step}) out of range for game {igame} {game_span}")
+            end_step = min(num_game_steps, end_step)
+            start_step = min(num_game_steps-1, start_step)
+
+        icmd_start = game_span[0] + start_step  # index into self.cmd_spans
+        icmd_end = game_span[0] + end_step      # index into self.cmd_spans
+
+        start_cmd_span = self.cmd_spans[icmd_start]
+        if inclusive[0]:
+            start_idx = start_cmd_span[0]
+        else:
+            start_idx = start_cmd_span[1]+1
+        if icmd_end >= len(self.cmd_spans):
+            end_cmd_span = (len(self.data), len(self.data)-1)  # fake span of length zero
+        else:
+            end_cmd_span = self.cmd_spans[icmd_end]
+        if not inclusive[1] or end_step == num_game_steps:  # don't include the next cmd sequence
+            end_idx = end_cmd_span[0]-1
+        else:
+            end_idx = end_cmd_span[1]
+        return (start_idx, end_idx), _span_len(start_cmd_span), _span_len(end_cmd_span)
+
+
+    def num_steps_total(self) -> int:
+        n_total = 0
+        for igame in range(self.num_games):
+            n_total += self.get_num_steps(igame)
+        return n_total
+
+    def build_index(self):
+        self._index = []
+        if self.cmd_spans is None:
+            return  # we can't index anything
+
     def __len__(self):
+        if self._index:
+            return len(self._index)
         return len(self.data) - self.block_size
 
     def __getitem__(self, idx):
         # grab a chunk of (block_size + 1) characters from the data
+        if self._index:
+            idx = self._index[idx]
         chunk = self.data[idx:idx + self.block_size + 1]
         """
         arrange data and targets so that the first i elements of x
@@ -180,6 +269,7 @@ class PlaythroughDataModule(LightningDataModule):
         self.vocab_dict = self.tokenizer.get_vocab(with_added_tokens=True)
         self.cmd_start_marker = self.tokenizer.token_to_id('>>>[')
         self.cmd_end_marker = self.tokenizer.token_to_id(']<<<')
+        self.game_start_tok = self.tokenizer.token_to_id('start')
         if not self.vocab_size:
             self.vocab_size = len(self.vocab_dict)
             # self.vocab_size = self.tokenizer.get_vocab_size(with_added_tokens=True)  # this seems to be wrong!
@@ -190,11 +280,15 @@ class PlaythroughDataModule(LightningDataModule):
         print("PlaythroughDataModule.prepare_data: ", len(encoded_data.ids))
 
         cmd_markers = (self.cmd_start_marker, self.cmd_end_marker)
-        self.train_dataset = PlaythroughDataset(encoded_data.ids, self.block_size, cmd_markers=cmd_markers)
+        self.train_dataset = PlaythroughDataset(encoded_data.ids, self.block_size,
+                                                cmd_markers=cmd_markers,
+                                                game_start_tok=self.game_start_tok)
 
         if self.val_file:
             eval_encoded = self.read_and_encode(self.val_file)
-            self.validation_dataset = PlaythroughDataset(eval_encoded.ids, self.block_size, cmd_markers=cmd_markers)
+            self.validation_dataset = PlaythroughDataset(eval_encoded.ids, self.block_size,
+                                                         cmd_markers=cmd_markers,
+                                                         game_start_tok=self.game_start_tok)
 
     def train_dataloader(self):
         loader = DataLoader(
