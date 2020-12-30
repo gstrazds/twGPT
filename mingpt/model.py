@@ -102,14 +102,6 @@ class Block(nn.Module):
 
 
 from .utils import sample
-def sample_ahead(model, x, n_samples, temperature=1.0, randsampling=False, top_k=None):
-        # y_ids = y.detach().cpu().tolist()
-        # print(f"[{idx}]", _datamodule.tokenizer.decode(y_ids[0:6]), '....',
-        #       _datamodule.tokenizer.decode(y_ids[-5:-1]), "|",
-        #       _datamodule.tokenizer.decode(y_ids[-1:]))
-        x_in = x[None, ...]
-        preds = sample(model, x_in, steps=n_samples, temperature=temperature, sample=randsampling, top_k=top_k)
-        return preds.detach()
 
 
 class GPTModule(pl.LightningModule):
@@ -184,7 +176,11 @@ class GPTModule(pl.LightningModule):
         return optimizer  #, lr_scheduler
 
     def training_step(self, batch, batch_idx):
-        x, y = batch
+        if len(batch) == 3:
+            x, y, _unused__pad_len = batch
+        else:
+            assert len(batch) == 2, "Expecting each training batch to be a tuple of x,y,(padding) "+int(len(batch))
+            x, y = batch
 
         # clf_logits = self.model(x, classify=True)
         # loss = self.criterion(clf_logits, y)
@@ -218,7 +214,11 @@ class GPTModule(pl.LightningModule):
         self.log('learning_rate', lr, on_step=True, on_epoch=False, prog_bar=True)
 
     def validation_step(self, batch, batch_idx):
-        x, y = batch
+        if len(batch) == 3:
+            x, y, _unused__pad_len = batch
+        else:
+            assert len(batch) == 2, "Expecting each training batch to be a tuple of x,y,(padding) "+int(len(batch))
+            x, y = batch
         y_hat, loss = self.model(x, y)
 
         # # 1. calculate loss
@@ -229,24 +229,16 @@ class GPTModule(pl.LightningModule):
         metrics = {'val_loss': loss} #, 'val_acc': acc}
         return metrics
 
-    # def validation_step(self, batch, batch_idx):
-    #     x, y = batch
-    #     result = {}
-    #     logits, _ = self.model(x)
-    #     logits = logits.view(-1, logits.size(-1))
-    #     loss = self.criterion(logits, x.view(-1).long())
-    #     # self.log('val_loss', loss)
-    #     self.log('val_loss', loss, on_step=True, on_epoch=True, prog_bar=True)
+    def validation_epoch_end(self, outs):
+        avg_loss = torch.stack([x["val_loss"] for x in outs]).mean()
+        self.log("val_loss", avg_loss, on_epoch=True, prog_bar=True)
 
-    # def validation_epoch_end(self, outs):
-    #     pass
-    #     # avg_loss = torch.stack([x["val_loss"] for x in outs]).mean()
-    #     # logs = {"val_loss": avg_loss}
-    #     # return {"val_loss": avg_loss, "log": logs}
+        # return {"val_loss": avg_loss, "log": logs}
 
     def test_step(self, batch, batch_idx):
         metrics = self.validation_step(batch, batch_idx)
-        metrics = {'test_loss': metrics['val_loss'], #'test_acc': metrics['val_acc'],
+        metrics = {'test_loss': metrics['val_loss'],
+                   #'test_acc': metrics['val_acc'],
                    }
         self.log_dict(metrics)
 
@@ -260,6 +252,10 @@ class GPTModule(pl.LightningModule):
     #     #     result["log"]["test_acc"] = result["log"].pop("val_acc")
     #     return result
 
+    def sample_ahead(self, x, n_samples, temperature=1.0, randsampling=False, top_k=None):
+        x_in = x[None, ...]
+        preds = sample(self.model, x_in, steps=n_samples, temperature=temperature, sample=randsampling, top_k=top_k)
+        return preds.detach()[0]
 
 
 class GPT(nn.Module):

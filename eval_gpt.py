@@ -17,7 +17,7 @@ from twutils.redis_playthroughs import format_playthrough_step, start_game_for_p
     playthrough_step_to_json, step_game_for_playthrough
 
 from mingpt.pthru_dataset import PlaythroughDataModule
-from mingpt.model import GPTModule, sample_ahead
+from mingpt.model import GPTModule
 
 
 def predict_cmd(pl_model, tokenizer, pthru_so_far: str) -> str:
@@ -29,21 +29,16 @@ def predict_cmd(pl_model, tokenizer, pthru_so_far: str) -> str:
 
     pthru_token_ids.append(tokenizer.token_to_id('>>>['))  # start of command marker
 
-    #     print(pthru_token_ids)
     x = torch.tensor(np.array(pthru_token_ids))
     x.to(pl_model.device)
 
-    predicted = sample_ahead(pl_model.model, x,
-                             n_samples=N_AHEAD, temperature=1.0, randsampling=False, top_k=None)
-    y_predicted = predicted.cpu().tolist()[0]
+    predicted = pl_model.sample_ahead(x, n_samples=N_AHEAD, temperature=1.0, randsampling=False, top_k=None)
 
-    #     predicted_tokens = tokenizer.decode(y_predicted)
-    #     print(predicted_tokens)
-    y_len = len(y_predicted)
-    inset = max(0, y_len - N_AHEAD - 20)
-    print("****** PROMPT:", tokenizer.decode(y_predicted[inset:-N_AHEAD]))
+    y_predicted = predicted.cpu().tolist()
+
+    print("****** PROMPT:", tokenizer.decode(y_predicted[max(0, len(y_predicted)-20-N_AHEAD):-N_AHEAD]))
     predicted_cmd = y_predicted[-N_AHEAD:]
-    #     print("***", tokenizer.decode(predicted_cmd))
+
     end_marker = tokenizer.token_to_id("]<<<")
     try:
         idx_ = predicted_cmd.index(end_marker)
@@ -110,6 +105,10 @@ def play_game(gamename, pl_model, tokenizer, gamedir=TW_VALIDATION_DIR, max_step
         # _redis_ops_, step_json = save_playthrough_step_info_to_redis(gamename, num_steps, _obs, _rewards, _dones,
         #                                                              _infos, next_cmds,
         #                                                              redis=None, do_write=False)
+
+        if _dones[0] and _rewards[0] and next_cmds[0] == 'eat meal':
+            success = True
+
         if 'tw_o_step' in _infos:
             next_cmds = _infos['tw_o_step']
         else:
@@ -123,8 +122,6 @@ def play_game(gamename, pl_model, tokenizer, gamedir=TW_VALIDATION_DIR, max_step
         print(f"Oracle: |{next_cmds[0]}|  Model: |{predicted_cmd}|")
         if not _dones[0]:
             next_cmds[0] = predicted_cmd
-        elif next_cmds[0] == 'eat meal':
-            success = True
         print("============================================")
         print(pthru)
         print("============================================")
@@ -154,7 +151,9 @@ def main(cfg: DictConfig) -> None:
         num_workers=cfg.data.num_workers,
         seed=cfg.general.random_seed,
         batch_size=cfg.trainer.batch_size,
-        block_size=cfg.gpt.block_size)
+        block_size=cfg.gpt.block_size,
+        train_filtering=cfg.data.train_filtering,
+        eval_filtering=cfg.data.eval_filtering, )
 
     _datamodule.prepare_data()
     tokenizer = _datamodule.tokenizer
@@ -167,7 +166,8 @@ def main(cfg: DictConfig) -> None:
     pl_model = GPTModule.load_from_checkpoint(checkpoint_path=cfg.eval.checkpoint)
     # pl_model.to(torch.device('cuda'))
 
-    print("Training dataset length:", len(_datamodule.train_dataset), "Validation:", len(_datamodule.validation_dataset))
+    print(f"Training dataset length={len(_datamodule.train_dataset)} (raw:{len(_datamodule.train_dataset.data)})")
+    print(f"Validation dataset length={len(_datamodule.validation_dataset)} (raw:{len(_datamodule.validation_dataset.data)})")
     dataset = _datamodule.validation_dataset
     if cfg.eval.play_games:
         filelist = glob.glob(f"{cfg.eval.pthru_data_dir}/*.pthru")
@@ -176,7 +176,7 @@ def main(cfg: DictConfig) -> None:
         num_successful = 0
         total_played = 0
         n_steps_dict = {}
-        for i, filepath in enumerate(filelist[:]):
+        for i, filepath in enumerate(filelist[:5]):
             total_played += 1
             print(f"[{i}] ------------ PLAYING: {filepath}")
             gn = pathlib.Path(filepath).stem
@@ -190,69 +190,102 @@ def main(cfg: DictConfig) -> None:
         print(f"PLAYED: {total_played} success={num_successful} maybe_ok={maybe_ok}")
         print(n_steps_dict)
     else:
-        print("eval dataset # cmd_spans =", len(dataset.cmd_spans))
-        for i in range(5):
-            num_steps = dataset.get_num_steps(i)
-            game_span = dataset.game_spans[i]
-            print("Game", i, "num_steps:", num_steps, game_span)
-            for j in range(num_steps):
-                print(f"\tcmd_span[{game_span[0]+j}] {dataset.cmd_spans[game_span[0]+j]}")
-            print("Game", i, "token span:", dataset.get_token_idxs(i))
-            print()
-        # print the same info for the last game in the dataset
-        i = dataset.num_games - 1
-        num_steps = dataset.get_num_steps(i)
-        game_span = dataset.game_spans[i]
-        print("Game", i, "num_steps:", num_steps, game_span)
-        for j in range(num_steps):
-            print(f"\tcmd_span[{game_span[0]+j}] {dataset.cmd_spans[game_span[0]+j]}")
-        last_range, cmd0_len, cmd1_len = dataset.get_token_idxs(i)
-        print("Game", i, "token span:", last_range, cmd0_len, cmd1_len)
-        token_list = dataset.data[last_range[0]:last_range[1]]
-        print(_datamodule.tokenizer.decode(token_list))
+        debug_print_some_spans(dataset)
 
-
-        print()
-
-        total_cmd_tokens = 0
-        total_matched = 0
-        for idx in range(1, len(dataset.cmd_spans)):   # skip the initial 'start' command
-            if idx %200 == 0 and total_matched == total_cmd_tokens:
-                print(idx, "...")  # let them know we're actually doing something...
-            x, y, cmd_start_pos = dataset.get_cmd_prompt(idx, continuation=-1)
-            cmd_len = len(x) - cmd_start_pos-1
-            x_trunc = x[:cmd_start_pos+1]
-            y_trunc = y[:cmd_start_pos+cmd_len]
-            y_ids = y_trunc.detach().cpu().tolist()
-
-            predicted = sample_ahead(pl_model.model, x_trunc,
-                                     n_samples=cmd_len, temperature=1.0, randsampling=False, top_k=None)
-            y_predicted = predicted.cpu().tolist()[0]
-
-            assert len(y_predicted) == len(y_ids)+1, f"{len(y_ids)} {len(y_predicted)}"
-            assert y_predicted[1] == y_ids[0], f"{y_predicted[0:5]} {y_ids[0:5]}"
-            n_cmd_tokens = 0
-            n_matched = 0
-            if cmd_len > 1:
-                for i in range(1, cmd_len+1):
-                    n_cmd_tokens += 1
-                    if y_predicted[-i] == y_ids[-i]:
-                        n_matched += 1
-            if n_matched != n_cmd_tokens:
-                print(f"... matched {n_matched}/{n_cmd_tokens} acc={n_matched / n_cmd_tokens}")
-                show_sample(_datamodule.tokenizer, idx, y_predicted, y_ids, n_sampled=cmd_len)
-
-            total_cmd_tokens += n_cmd_tokens
-            total_matched += n_matched
-        print(f"MATCHED {total_matched}/{total_cmd_tokens} acc={total_matched/total_cmd_tokens}")
+        total_matched, total_cmd_tokens = eval_predict_cmd_tokens(pl_model, dataset, tokenizer=_datamodule.tokenizer)
+        print(f"MATCHED {total_matched}/{total_cmd_tokens} acc={total_matched / total_cmd_tokens}")
 
     finish_time = datetime.datetime.now()
     print(f"================ eval_gpt.py - Finished : {finish_time} -- elapsed: {finish_time-start_time}")
 
 
+def eval_predict_cmd_tokens(pl_model, dataset, tokenizer=None):
+    total_cmd_tokens = 0
+    total_matched = 0
+    n_printed = 0
+    # for idx in range(1, len(dataset.cmd_spans)):   # skip the initial 'start' command
+    #     x, y, cmd_start_pos = dataset.get_cmd_prompt(idx, continuation=-1)
+    #     if idx % 200 == 0 and total_matched == total_cmd_tokens:
+    #         print(idx, "...")  # let them know we're actually doing something...
+    for igame in range(dataset.num_games):
+        print(f"+{igame} [:{dataset.get_num_steps(igame)}] --------------------------")
+        for istep in range(1, dataset.get_num_steps(igame)):
+            x, y, cmd_start_pos = dataset.get_cmd_prompt_for_gamestep(igame, istep, continuation=-1)
+            cmd_start_pos = cmd_start_pos.to(pl_model.device)
+            x = x.to(pl_model.device)
+            y = y.to(pl_model.device)
+
+            cmd_len = len(x) - int(cmd_start_pos) - 1
+            x_trunc = x[:int(cmd_start_pos)+1]
+            y_trunc = y[:int(cmd_start_pos)+cmd_len]
+
+            predicted = pl_model.sample_ahead(x_trunc,
+                                     n_samples=cmd_len, temperature=1.0, randsampling=False, top_k=None)
+
+            assert len(predicted) == len(y_trunc)+1, f"{len(predicted)} {len(y_trunc)}"
+            assert predicted[1] == y_trunc[0], f"{predicted[0:5]} {y_trunc[0:5]}"
+
+            n_matched_torch = int(torch.sum(predicted[-cmd_len:] == y_trunc[-cmd_len:]))  # torch 1.7 has torch.count_nonzero()
+            n_cmd_tokens = int(cmd_len)
+            # y_predicted = predicted.cpu().tolist()
+            # y_ids = y_trunc.detach().cpu().tolist()
+            # assert len(y_predicted) == len(y_ids) + 1, f"{len(y_ids)} {len(y_predicted)}"
+            # assert y_predicted[1] == y_ids[0], f"{y_predicted[0:5]} {y_ids[0:5]}"
+
+            # n_cmd_tokens = 0
+            # n_matched = 0
+            # if cmd_len > 1:
+            #     for i in range(1, cmd_len + 1):
+            #         n_cmd_tokens += 1
+            #         if y_predicted[-i] == y_ids[-i]:
+            #             n_matched += 1
+            # assert n_matched == n_matched_torch, f"{n_matched} {n_matched_torch}"
+            # assert n_cmd_tokens == cmd_len
+
+            if n_matched_torch != n_cmd_tokens:
+                n_printed += 1
+                n_matched = n_matched_torch
+                print(f" {igame}.{istep}  ...   \t{n_matched} / {n_cmd_tokens}   \tacc: {n_matched / n_cmd_tokens:4f}")
+                if tokenizer and n_printed < 20 or n_printed % 100 == 0 or igame > dataset.num_games - 3:
+                    y_predicted = predicted.cpu().tolist()
+                    y_ids = y_trunc.detach().cpu().tolist()
+                    show_sample(tokenizer, f"{igame}.{istep}", y_predicted, y_ids, n_sampled=cmd_len)
+
+            total_cmd_tokens += n_cmd_tokens
+            total_matched += n_matched_torch
+    return total_matched, total_cmd_tokens
+
+
+def debug_print_some_spans(dataset):
+    print("eval dataset # cmd_spans =", len(dataset.cmd_spans))
+    for i in range(5):
+        num_steps = dataset.get_num_steps(i)
+        game_span = dataset.game_spans[i]
+        print("Game", i, "num_steps:", num_steps, game_span)
+        for j in range(num_steps):
+            print(f"\tcmd_span[{game_span[0] + j}] {dataset.cmd_spans[game_span[0] + j]}", end=' ')
+            print(f"{dataset.get_token_idxs(i, 0, j + 1, inclusive=(True, True))[0]}")
+            # print("cmd_prompt_for_gamestep:", dataset.get_cmd_prompt_for_gamestep(i,j))
+        print("Game", i, "token span:", dataset.get_token_idxs(i))
+        print()
+    # print the same info for the last game in the dataset
+    i = dataset.num_games - 1
+    num_steps = dataset.get_num_steps(i)
+    game_span = dataset.game_spans[i]
+    print("Game", i, "num_steps:", num_steps, game_span)
+    for j in range(num_steps):
+        print(f"\tcmd_span[{game_span[0] + j}] {dataset.cmd_spans[game_span[0] + j]}", end=' ')
+        print(f"{dataset.get_token_idxs(i, j, j + 1, inclusive=(True, True))[0]}")
+    last_range, cmd0_len, cmd1_len = dataset.get_token_idxs(i)
+    print("Game", i, "token span:", last_range, cmd0_len, cmd1_len)
+    # token_list = dataset.data[last_range[0]:last_range[1]]
+    # print(_datamodule.tokenizer.decode(token_list))
+    # print()
+
+
 def show_sample(tokenizer, idx, y_predicted, y_ids, n_sampled=5):
     # print(f"!{idx}!", tokenizer.decode(y_ids))
-    print(f"[{idx}]", tokenizer.decode(y_ids[0:6]), '[....]',
+    print(f"({idx})", tokenizer.decode(y_ids[0:6]), '[....]',
           tokenizer.decode(y_ids[-5-n_sampled:-n_sampled]), "|",
           tokenizer.decode(y_ids[-n_sampled:]))
 

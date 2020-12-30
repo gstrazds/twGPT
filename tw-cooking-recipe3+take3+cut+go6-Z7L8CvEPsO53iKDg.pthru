@@ -4,7 +4,7 @@
 -= bathroom =-
 ON toilet : nothing ;
 
----Exits---
+Exits
 west to unknown ;
 
 
@@ -12,7 +12,7 @@ west to unknown ;
 You go west.
 -= corridor =-
 
----Exits---
+Exits
 east to bathroom ;
 south to unknown ;
 
@@ -22,7 +22,7 @@ You go south.
 -= livingroom =-
 ON sofa : nothing ;
 
----Exits---
+Exits
 east to unknown ;
 north to corridor ;
 west to unknown ;
@@ -33,7 +33,7 @@ You go west.
 -= bedroom =-
 ON bed : nothing ;
 
----Exits---
+Exits
 east to livingroom ;
 
 
@@ -42,7 +42,7 @@ You go east.
 -= livingroom =-
 ON sofa : nothing ;
 
----Exits---
+Exits
 east to unknown ;
 north to corridor ;
 west to bedroom ;
@@ -57,7 +57,7 @@ ON table : cookbook ;
 ON counter : +roasted purple potato , +raw red potato , knife ;
 ON stove : nothing ;
 
----Exits---
+Exits
 east +open plain door to unknown ;
 west to livingroom ;
 
@@ -71,7 +71,7 @@ ON table : cookbook ;
 ON counter : +roasted purple potato , +raw red potato , knife ;
 ON stove : nothing ;
 
----Exits---
+Exits
 east +open plain door to unknown ;
 west to livingroom ;
 
@@ -85,7 +85,7 @@ ON table : cookbook ;
 ON counter : +roasted purple potato , +raw red potato , knife ;
 ON stove : nothing ;
 
----Exits---
+Exits
 east +open plain door to unknown ;
 west to livingroom ;
 
@@ -99,7 +99,7 @@ ON table : cookbook ;
 ON counter : +roasted purple potato , +raw red potato , knife ;
 ON stove : nothing ;
 
----Exits---
+Exits
 east +open plain door to unknown ;
 west to livingroom ;
 
@@ -114,7 +114,7 @@ ON table : cookbook ;
 ON counter : +roasted purple potato , +raw red potato ;
 ON stove : nothing ;
 
----Exits---
+Exits
 east +open plain door to unknown ;
 west to livingroom ;
 
@@ -129,7 +129,7 @@ ON table : cookbook ;
 ON counter : +roasted purple potato , +raw red potato ;
 ON stove : nothing ;
 
----Exits---
+Exits
 east +open plain door to unknown ;
 west to livingroom ;
 
@@ -144,7 +144,7 @@ ON table : cookbook ;
 ON counter : +raw red potato ;
 ON stove : nothing ;
 
----Exits---
+Exits
 east +open plain door to unknown ;
 west to livingroom ;
 
@@ -159,7 +159,7 @@ ON table : cookbook ;
 ON counter : +raw red potato ;
 ON stove : nothing ;
 
----Exits---
+Exits
 east +open plain door to unknown ;
 west to livingroom ;
 
@@ -170,7 +170,7 @@ You go east.
 -= pantry =-
 ON shelf : black pepper , +raw orange bell pepper ;
 
----Exits---
+Exits
 west +open plain door to kitchen ;
 
 Carrying : +diced parsley , knife , +roasted +sliced purple potato ;
@@ -180,7 +180,7 @@ You take the black pepper from the shelf.
 -= pantry =-
 ON shelf : +raw orange bell pepper ;
 
----Exits---
+Exits
 west +open plain door to kitchen ;
 
 Carrying : +diced parsley , knife , +roasted +sliced purple potato , black pepper ;
@@ -194,7 +194,7 @@ ON table : cookbook ;
 ON counter : +raw red potato ;
 ON stove : nothing ;
 
----Exits---
+Exits
 east +open plain door to pantry ;
 west to livingroom ;
 
@@ -209,7 +209,7 @@ ON table : cookbook ;
 ON counter : +raw red potato ;
 ON stove : nothing ;
 
----Exits---
+Exits
 east +open plain door to pantry ;
 west to livingroom ;
 
@@ -224,7 +224,7 @@ ON table : cookbook ;
 ON counter : +raw red potato ;
 ON stove : nothing ;
 
----Exits---
+Exits
 east +open plain door to pantry ;
 west to livingroom ;
 

@@ -40,7 +40,9 @@ def main(cfg: DictConfig) -> None:
             num_workers=cfg.data.num_workers,
             seed=cfg.general.random_seed,
             batch_size=cfg.trainer.batch_size,
-            block_size=cfg.gpt.block_size)
+            block_size=cfg.gpt.block_size,
+            train_filtering=cfg.data.train_filtering,
+            eval_filtering=cfg.data.eval_filtering, )
     else:
         model_data_id = 'char'
         _datamodule = CharDataModule(
@@ -50,7 +52,7 @@ def main(cfg: DictConfig) -> None:
             num_workers=cfg.data.num_workers,
             seed=cfg.general.random_seed,
             batch_size=cfg.trainer.batch_size,
-            block_size=cfg.gpt.block_size)
+            block_size=cfg.gpt.block_size, )
 
     _datamodule.prepare_data()
     train_dataset = _datamodule.train_dataset
@@ -63,44 +65,49 @@ def main(cfg: DictConfig) -> None:
 
     # pl_model.load_from_checkpoint(checkpoint_path=cfg.cwd_path + "/saved_models/dec18-startofepoch2.ckpt")
 
-    # initialize a trainer instance and kick off training
-    if not cfg.use_lightning:
-        tconf = TrainerConfig(**cfg.trainer)
-        print(f"Trainer Config: betas={tconf.betas}, final_tokens={tconf.final_tokens}")
-        trainer = mingpt.trainer.Trainer(pl_model.model, train_dataset, None, tconf)
-        optimizer = pl_model.configure_optimizers()
-        trainer.train(optimizer)
-    else:
-        print("USING PyTorch Lightning Trainer")
-        print("Training dataset length =", len(_datamodule.train_dataset))
+# # initialize a trainer instance and kick off training
+# if not cfg.use_lightning:
+#     tconf = TrainerConfig(**cfg.trainer)
+#     print(f"Trainer Config: betas={tconf.betas}, final_tokens={tconf.final_tokens}")
+#     trainer = mingpt.trainer.Trainer(pl_model.model, train_dataset, None, tconf)
+#     optimizer = pl_model.configure_optimizers()
+#     trainer.train(optimizer)
+# else:
+    print("USING PyTorch Lightning Trainer")
+    print("Training dataset length =", len(_datamodule.train_dataset))
 
-        checkpoint_callback = ModelCheckpoint(
-            monitor='val_loss',
-            # dirpath='my/path/',
-            filename=model_data_id+'-{epoch:02d}-{step:05d}-{val_loss:.2f}',
-            save_top_k=6,
-            mode='min',
-        )
-        callback_list = [checkpoint_callback]
+    checkpoint_callback = ModelCheckpoint(
+        monitor='val_loss',
+        # dirpath='my/path/',
+        filename=model_data_id+'-{epoch:02d}-{step:05d}-{val_loss:.2f}',   # {val_acc:.2f}'
+        save_top_k=cfg.trainer.save_top_k,
+        mode='min',
+    )
 
-        if cfg.train_ftwc:
-            show_samples_callback = SamplePredictions(_datamodule.tokenizer, _datamodule.train_dataset, how_many=5)
-            callback_list.append(show_samples_callback)
+    callback_list = [checkpoint_callback]
+    if cfg.trainer.patience > 0:
+        early_stopping = EarlyStopping('val_loss', mode='min', patience=cfg.trainer.patience)
+        callback_list.append(early_stopping)
+    #early_stopping = EarlyStopping('val_acc', mode='max', patience=5)
 
-        trainer = pl.Trainer(gpus=cfg.gpus,
-                             val_check_interval=cfg.val_check_interval,
-                             limit_val_batches=cfg.limit_val_batches,
-                             resume_from_checkpoint=cfg.resume_from_checkpoint,
-                             callbacks=callback_list)
-        trainer.fit(pl_model, _datamodule)
+
+    if cfg.train_ftwc:
+        show_samples_callback = SamplePredictions(_datamodule.tokenizer, _datamodule.validation_dataset, how_many=5)
+        callback_list.append(show_samples_callback)
+
+    trainer = pl.Trainer(gpus=cfg.gpus,
+                         max_epochs=cfg.trainer.max_epochs,
+                         val_check_interval=cfg.trainer.val_check_interval,
+                         limit_val_batches=cfg.trainer.limit_val_batches,
+                         resume_from_checkpoint=cfg.resume_from_checkpoint,
+                         callbacks=callback_list)
+    trainer.fit(pl_model, _datamodule)
 
     finish_time = datetime.datetime.now()
     print(f"================ train_gpt.py - Finished : {finish_time} -- elapsed: {finish_time-start_time}")
 
 
-from pytorch_lightning.callbacks import Callback
-
-from mingpt.model import sample_ahead
+from pytorch_lightning.callbacks import Callback, EarlyStopping
 
 def show_sample(tokenizer, idx, y_predicted, y_ids, n_sampled=5):
     # print(f"!{idx}!", tokenizer.decode(y_ids))
@@ -112,6 +119,7 @@ def show_sample(tokenizer, idx, y_predicted, y_ids, n_sampled=5):
           tokenizer.decode(y_predicted[-5-n_sampled:]))
     print()
 
+from eval_gpt import eval_predict_cmd_tokens
 
 class SamplePredictions(Callback):
     def __init__(self, tokenizer, dataset, how_many=3, **kwargs):
@@ -121,19 +129,27 @@ class SamplePredictions(Callback):
         self.how_many = how_many
 
     def on_validation_end(self, trainer, pl_module):
-        SAMPLE_LEN = 4
-        for idx in range(self.how_many):
-            x, y = self.dataset[idx * 10]
-            x = x.to(pl_module.device)
-            # print(x, y)  #two tensors, identical except for offset by 1 postiion
+        n_matched, total_cmd_tokens = eval_predict_cmd_tokens(pl_module, self.dataset, tokenizer=self.tokenizer)
+        cmd_prediction_acc = n_matched / total_cmd_tokens
+        print("VALIDATION CMD_TOKEN_PREDICTION_ACC =", cmd_prediction_acc)
+        # (NOT YET SUPPORTED): pl_module.log("val_acc", n_matched / total_cmd_tokens, on_step=False, on_epoch=True, prog_bar=True)
+        pl_module.logger.log_metrics({"cmd_predict_acc": cmd_prediction_acc}, step=trainer.global_step)  #n_matched / total_cmd_tokens)
 
-            x_trunc = x[:-(SAMPLE_LEN-1)]  # x is already 1 position behind y, so chop off only SAMPLE_LEN-1
 
-            y_ids = y.detach().cpu().tolist()
-            predicted = sample_ahead(pl_module.model, x_trunc,
-                            n_samples=SAMPLE_LEN, temperature=1.0, randsampling=False, top_k=None)
-            y_predicted = predicted.cpu().tolist()[0]
-            show_sample(self.tokenizer, idx*10, y_predicted, y_ids, n_sampled=SAMPLE_LEN)
+        # SAMPLE_LEN = 4
+        # for idx in range(self.how_many):
+        #     x, y = self.dataset[idx * 10]
+        #     x = x.to(pl_module.device)
+        #     # print(x, y)  #two tensors, identical except for offset by 1 postiion
+        #
+        #     x_trunc = x[:-(SAMPLE_LEN-1)]  # x is already 1 position behind y, so chop off only SAMPLE_LEN-1
+        #
+        #     predicted = pl_module.sample_ahead(x_trunc,
+        #                     n_samples=SAMPLE_LEN, temperature=1.0, randsampling=False, top_k=None)
+        #     y_predicted = predicted.cpu().tolist()
+        #     y_ids = y.detach().cpu().tolist()
+        #     show_sample(self.tokenizer, idx*10, y_predicted, y_ids, n_sampled=SAMPLE_LEN)
+
 
 
 if __name__ == '__main__':
