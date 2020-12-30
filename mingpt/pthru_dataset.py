@@ -255,15 +255,15 @@ class PlaythroughDataset(Dataset):
 
     def _prompt_for_cmd_span(self, cmd_start_idx, cmd_end_idx, game_start_idx=0,
                              continuation=-1, fill_id=0):
+        if continuation < 0:
+            continuation = cmd_end_idx - cmd_start_idx   # cmd_len
         cmd_start_pos = self.block_size-1   # where in the output buffer the start marker will be
         prompt_len = self.block_size
         start_idx = cmd_start_idx - self.block_size + 1
         if start_idx < game_start_idx:
             prompt_len -= (game_start_idx - start_idx)
             cmd_start_pos -= (game_start_idx - start_idx)
-            start_idx = 0
-        if continuation < 0:
-            continuation = cmd_end_idx - cmd_start_idx
+            start_idx = game_start_idx
 
         output_len = prompt_len + continuation
         x_len = output_len - cmd_start_pos

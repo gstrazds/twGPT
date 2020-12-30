@@ -176,7 +176,7 @@ def main(cfg: DictConfig) -> None:
         num_successful = 0
         total_played = 0
         n_steps_dict = {}
-        for i, filepath in enumerate(filelist[:5]):
+        for i, filepath in enumerate(filelist[:]):
             total_played += 1
             print(f"[{i}] ------------ PLAYING: {filepath}")
             gn = pathlib.Path(filepath).stem
@@ -211,15 +211,22 @@ def eval_predict_cmd_tokens(pl_model, dataset, tokenizer=None):
         if igame % 10 == 0:
             print(f"+{igame} [:{dataset.get_num_steps(igame)}] --------------------------")
         for istep in range(1, dataset.get_num_steps(igame)):
+            #_span_debug, _, _ = dataset.get_token_idxs(igame, 0, istep)
+            #print(f"get_token_idxs(igame={igame}, 0, end_step={istep})  {_span_debug}")
+            #print(dataset.data[_span_debug[0]:_span_debug[1]+1])
             x, y, cmd_start_pos = dataset.get_cmd_prompt_for_gamestep(igame, istep, continuation=-1)
             cmd_start_pos = cmd_start_pos.to(pl_model.device)
             x = x.to(pl_model.device)
             y = y.to(pl_model.device)
-
             cmd_len = len(x) - int(cmd_start_pos) - 1
-            x_trunc = x[:int(cmd_start_pos)+1]
-            y_trunc = y[:int(cmd_start_pos)+cmd_len]
+            x_trunc = x[0:int(cmd_start_pos)+1]
+            y_trunc = y[0:int(cmd_start_pos)+cmd_len]
+            #print(f"len(x)={len(x)}, cmd_start_pos={cmd_start_pos}" )
+            #print("cmd_len", cmd_len)
+            #print("x:", x)
+            #print("x_trunc:", x_trunc)
 
+            assert x_trunc[int(cmd_start_pos)] == dataset.cmd_start, f"{cmd_start_pos}: {x_trunc[int(cmd_start_pos)]} {x_trunc}"
             predicted = pl_model.sample_ahead(x_trunc,
                                      n_samples=cmd_len, temperature=1.0, randsampling=False, top_k=None)
 
@@ -251,7 +258,7 @@ def eval_predict_cmd_tokens(pl_model, dataset, tokenizer=None):
                     if tokenizer:
                         y_predicted = predicted.cpu().tolist()
                         y_ids = y_trunc.detach().cpu().tolist()
-                        show_sample(tokenizer, f"{igame}.{istep}", y_predicted, y_ids, n_sampled=cmd_len)
+                        show_sample(tokenizer, f"{igame}.{istep}", y_predicted, y_ids, n_sampled=n_cmd_tokens)
 
             total_cmd_tokens += n_cmd_tokens
             total_matched += n_matched_torch
