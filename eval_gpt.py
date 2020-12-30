@@ -208,7 +208,8 @@ def eval_predict_cmd_tokens(pl_model, dataset, tokenizer=None):
     #     if idx % 200 == 0 and total_matched == total_cmd_tokens:
     #         print(idx, "...")  # let them know we're actually doing something...
     for igame in range(dataset.num_games):
-        print(f"+{igame} [:{dataset.get_num_steps(igame)}] --------------------------")
+        if igame % 10 == 0:
+            print(f"+{igame} [:{dataset.get_num_steps(igame)}] --------------------------")
         for istep in range(1, dataset.get_num_steps(igame)):
             x, y, cmd_start_pos = dataset.get_cmd_prompt_for_gamestep(igame, istep, continuation=-1)
             cmd_start_pos = cmd_start_pos.to(pl_model.device)
@@ -245,11 +246,12 @@ def eval_predict_cmd_tokens(pl_model, dataset, tokenizer=None):
             if n_matched_torch != n_cmd_tokens:
                 n_printed += 1
                 n_matched = n_matched_torch
-                print(f" {igame}.{istep}  ...   \t{n_matched} / {n_cmd_tokens}   \tacc: {n_matched / n_cmd_tokens:4f}")
-                if tokenizer and n_printed < 20 or n_printed % 100 == 0 or igame > dataset.num_games - 3:
-                    y_predicted = predicted.cpu().tolist()
-                    y_ids = y_trunc.detach().cpu().tolist()
-                    show_sample(tokenizer, f"{igame}.{istep}", y_predicted, y_ids, n_sampled=cmd_len)
+                if n_printed < 10 or n_printed % 100 == 0 or igame > dataset.num_games - 3:
+                    print(f" {igame}.{istep}  ...   \t{n_matched} / {n_cmd_tokens}   \tacc: {n_matched / n_cmd_tokens:4f}")
+                    if tokenizer:
+                        y_predicted = predicted.cpu().tolist()
+                        y_ids = y_trunc.detach().cpu().tolist()
+                        show_sample(tokenizer, f"{igame}.{istep}", y_predicted, y_ids, n_sampled=cmd_len)
 
             total_cmd_tokens += n_cmd_tokens
             total_matched += n_matched_torch
