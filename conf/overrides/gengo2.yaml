@@ -1,0 +1,8 @@
+# @package _global_
+# overrides for main config from config.yaml
+
+gpus:  # set to a single int n to auto-select n gpus from all available, or to a list of gpu indices e.g. [0,1,2,3]
+#  - 0  # yaml format for a list
+#  - 1
+  - 2
+#  - 3

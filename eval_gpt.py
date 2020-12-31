@@ -131,7 +131,7 @@ def play_game(gamename, pl_model, tokenizer, gamedir=TW_VALIDATION_DIR, max_step
     gymenv.close()
     return num_steps, success
 
-@hydra.main(config_path=".", config_name="pthru-gpt")
+@hydra.main(config_path="conf", config_name="pthru-gpt")
 def main(cfg: DictConfig) -> None:
     cfg.cwd_path = hydra.utils.to_absolute_path(cfg.cwd_path)
 

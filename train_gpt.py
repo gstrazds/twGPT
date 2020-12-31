@@ -19,7 +19,7 @@ from mingpt.model import GPTModule
 import mingpt
 from mingpt.trainer import TrainerConfig
 
-@hydra.main(config_path=".", config_name="pthru-gpt")
+@hydra.main(config_path="conf", config_name="pthru-gpt")
 def main(cfg: DictConfig) -> None:
     cfg.cwd_path = hydra.utils.to_absolute_path(cfg.cwd_path)
 

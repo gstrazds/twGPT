@@ -1,11 +1,17 @@
 # @package _global_
+# @package _global_
+defaults:
+#  - xx: null    #xx=xx_config has default values for running with tw_agent
+  - overrides: null   # can add arbitrary config files in conf/overrides/ to override values listed here
 
 train_ftwc: True
 resume_from_checkpoint: null  #/home/guntis/work/0_magd3/tw13/minGPT/saved_models/dec18-startofepoch2.ckpt
 
-gpus:   # set to a single int n to auto-select n gpus from all available, or to a list of gpu indices e.g. [0,1,2,3]
-  - 0
+gpus:  1 # set to a single int n to auto-select n gpus from all available, or to a list of gpu indices e.g. [0,1,2,3]
+#  - 0  # yaml format for a list
+#  - 1
 #  - 2
+#  - 3
 cwd_path: "."   # gets expanded to an absolute path to the original current directory (not the Hydra/runtime working dir)
 use_lightning: True
 
