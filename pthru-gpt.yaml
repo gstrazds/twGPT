@@ -39,7 +39,7 @@ gpt:
 
 trainer:
   patience: 6
-  save_top_k: 5
+  save_top_k: 10
   val_check_interval: 0.2
   limit_val_batches: 10000  # this should cover all of our current validation set (but maybe not the test set?)
   max_epochs: 10
@@ -59,7 +59,10 @@ trainer:
 eval:
   # ${cwd_path}/saved_models/mingpt-epoch=60-step=00243-val_loss=0.03.ckpt  #mingpt-epoch=820-step=03281-val_loss=0.02.ckpt
   # ${cwd_path}/saved_models/dec18-startofepoch2.ckpt
-  checkpoint: ${cwd_path}/saved_models/mingpt-epoch=02-step=01616-val_loss=0.66.ckpt
+  checkpoint: ${cwd_path}/saved_models/12-31/mingpt-epoch=1-step=1469-train_loss_step=0.197-val_loss=0.662.ckpt  # 84.2 % (win 27/124)
+  # mingpt-epoch=02-step=01616-val_loss=0.66.ckpt  # 83.6 % (win 29/124)
+  # mingpt-epoch=2-step=1616-train_loss_step=0.199-val_loss=0.662.ckpt  # 83.6
+          #        mingpt-epoch=02-step=01616-val_loss=0.66.ckpt
   # mingpt-epoch=00-step=02141-val_loss=0.19.ckpt  # 1
   # mingpt-epoch=00-step=04283-val_loss=0.16.ckpt  # 2
   # mingpt-epoch=00-step=06425-val_loss=0.11.ckpt  # 3
@@ -71,6 +74,6 @@ eval:
   # mingpt-epoch=01-step=17257-val_loss=0.09.ckpt  # 9
   #  #dec18-startofepoch2.ckpt
   play_games: False
-  pthru_data_dir: /ssd2tb/ftwc/playthru_data/mingpt-valid
-  games_dir: /ssd2tb/ftwc/games/valid/
+  pthru_data_dir: /ssd2tb/ftwc/playthru_data/mingpt-test  #-valid
+  games_dir: /ssd2tb/ftwc/games/test/   # valid/
 

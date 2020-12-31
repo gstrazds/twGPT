@@ -17,8 +17,6 @@ class PlaythroughDataset(Dataset):
     TARGET_CMD_PROMPTS = "cmd_prompts"
 
     def __init__(self, data, block_size, cmd_markers: Tuple[int,int] = None, game_start_tok:int = None, span_filtering=None):
-        data_size = len(data)
-        print("PlaythroughDataset datalen=", data_size)
         self.block_size = block_size
         self.data = np.array(data)  # make a copy of the given list of token ids
         self.cmd_spans = None
@@ -67,6 +65,16 @@ class PlaythroughDataset(Dataset):
             self.cmd_spans = None
 
         self.build_index()
+
+    def print_info(self, name="PlaythroughDataset"):
+        num_cmd_tokens = 0
+        num_cmd_tokens = 0
+        if self.cmd_spans is not None:
+            num_spans = len(self.cmd_spans)
+            for span in self.cmd_spans:
+                num_cmd_tokens += _span_len(span)
+        print(f"{name} filtering={self.span_filtering} datalen={len(self.data)}"
+              f" len={len(self)} #games={self.num_games} #cmd_spans={num_spans} #cmd_tokens={num_cmd_tokens}")
 
     @property
     def num_games(self):

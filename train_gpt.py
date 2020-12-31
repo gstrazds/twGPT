@@ -74,12 +74,13 @@ def main(cfg: DictConfig) -> None:
 #     trainer.train(optimizer)
 # else:
     print("USING PyTorch Lightning Trainer")
-    print("Training dataset length =", len(_datamodule.train_dataset))
+    _datamodule.train_dataset.print_info("train_dataset")
+    _datamodule.validation_dataset.print_info("validation_dataset")
 
     checkpoint_callback = ModelCheckpoint(
-        monitor='val_loss',
+        monitor='train_loss_step',
         # dirpath='my/path/',
-        filename=model_data_id+'-{epoch:02d}-{step:05d}-{val_loss:.2f}',   # {val_acc:.2f}'
+        filename=model_data_id+'-{epoch}-{step}-{train_loss_step:.3f}-{val_loss:.3f}',   # {val_acc:.2f}'
         save_top_k=cfg.trainer.save_top_k,
         mode='min',
     )
@@ -92,7 +93,7 @@ def main(cfg: DictConfig) -> None:
 
 
     if cfg.train_ftwc:
-        show_samples_callback = SamplePredictions(_datamodule.tokenizer, _datamodule.validation_dataset, how_many=5)
+        show_samples_callback = SamplePredictions(_datamodule.tokenizer, _datamodule.validation_dataset, out_dir="./", how_many=5)
         callback_list.append(show_samples_callback)
 
     trainer = pl.Trainer(gpus=cfg.gpus,
@@ -122,18 +123,23 @@ def show_sample(tokenizer, idx, y_predicted, y_ids, n_sampled=5):
 from eval_gpt import eval_predict_cmd_tokens
 
 class SamplePredictions(Callback):
-    def __init__(self, tokenizer, dataset, how_many=3, **kwargs):
+    def __init__(self, tokenizer, dataset, how_many=3, out_dir=None, **kwargs):
         super().__init__(**kwargs)
         self.tokenizer = tokenizer
         self.dataset = dataset
         self.how_many = how_many
+        self.out_dir = out_dir
 
     def on_validation_end(self, trainer, pl_module):
         n_matched, total_cmd_tokens = eval_predict_cmd_tokens(pl_module, self.dataset, tokenizer=self.tokenizer)
         cmd_prediction_acc = n_matched / total_cmd_tokens
         print("VALIDATION CMD_TOKEN_PREDICTION_ACC =", cmd_prediction_acc)
         # (NOT YET SUPPORTED): pl_module.log("val_acc", n_matched / total_cmd_tokens, on_step=False, on_epoch=True, prog_bar=True)
-        pl_module.logger.log_metrics({"cmd_predict_acc": cmd_prediction_acc}, step=trainer.global_step)  #n_matched / total_cmd_tokens)
+        pl_module.logger.log_metrics({"cmd_acc": cmd_prediction_acc}, step=trainer.global_step)  #n_matched / total_cmd_tokens)
+        if self.out_dir and (not hasattr(trainer, "rank") or trainer.rank == 0):
+            with open(self.out_dir +
+                      f'cmd_acc_{trainer.current_epoch}-step{trainer.global_step:05d}_{cmd_prediction_acc}.txt', 'w') as outfile:
+                outfile.write(f"{cmd_prediction_acc}\t{n_matched}\t{total_cmd_tokens}")
 
 
         # SAMPLE_LEN = 4

@@ -166,8 +166,11 @@ def main(cfg: DictConfig) -> None:
     pl_model = GPTModule.load_from_checkpoint(checkpoint_path=cfg.eval.checkpoint)
     # pl_model.to(torch.device('cuda'))
 
-    print(f"Training dataset length={len(_datamodule.train_dataset)} (raw:{len(_datamodule.train_dataset.data)})")
-    print(f"Validation dataset length={len(_datamodule.validation_dataset)} (raw:{len(_datamodule.validation_dataset.data)})")
+    # print(f"Training dataset length={len(_datamodule.train_dataset)} (raw:{len(_datamodule.train_dataset.data)})")
+    # print(f"Validation dataset length={len(_datamodule.validation_dataset)} (raw:{len(_datamodule.validation_dataset.data)})")
+    _datamodule.train_dataset.print_info("train_dataset")
+    _datamodule.validation_dataset.print_info("validation_dataset")
+
     dataset = _datamodule.validation_dataset
     if cfg.eval.play_games:
         filelist = glob.glob(f"{cfg.eval.pthru_data_dir}/*.pthru")
