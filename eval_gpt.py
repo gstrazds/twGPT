@@ -170,13 +170,12 @@ def play_game(gamename, pl_model, tokenizer, gamedir=TW_TRAINING_DIR, max_steps=
         prev_cmd = next_cmds[0]
         pthru_so_far, cmd_was_ok = grow_pthru_if_cmd_ok(pthru_so_far,
                                                         prev_cmd, _infos, _rewards[0], pthru_step)
-        if cmd_was_ok or len(attempted_cmds) > 5:
+        if cmd_was_ok:
             num_steps += 1
             attempted_cmds = []
-        elif prev_cmd in attempted_cmds:  # it seems that our previous attempt to randomize failed to find any other option
+        elif prev_cmd in attempted_cmds or len(attempted_cmds) > 5::  # our previous attempts to randomize failed to find any other option
             print("Stop trying to find alternatives:", prev_cmd, " has already been tried:", attempted_cmds)
             num_steps += 1
-            attempted_cmds = []
         else:
             attempted_cmds.append(prev_cmd)
 
