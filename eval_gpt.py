@@ -34,9 +34,9 @@ def predict_cmd(pl_model, tokenizer, pthru_so_far: str, failed_cmds: List[str] =
 
     if failed_cmds:
         attempts = 10
-        temp = 1.0
+        temp = 2.0
         sample = True
-        top_k = 20
+        top_k = None
     else:
         attempts = 1
         temp = 1.0
@@ -61,8 +61,10 @@ def predict_cmd(pl_model, tokenizer, pthru_so_far: str, failed_cmds: List[str] =
         if ' - ' in action_str:
             action_str = action_str.replace(' - ', '-')
         print("******* PREDICTED CMD:", action_str)
-        if not failed_cmds or action_str not in failed_cmds:
-            print(f"Trying alternate cmd: {action_str} previously tried: {failed_cmds}")
+        if not failed_cmds:
+            break
+        elif action_str not in failed_cmds:
+            print(f"Trying alternate cmd: '{action_str}' previously tried: {failed_cmds}")
             break   # try this, it hasn't failed yet
 
     return action_str  # send the command to the game
