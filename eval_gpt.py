@@ -20,7 +20,7 @@ from mingpt.pthru_dataset import PlaythroughDataModule
 from mingpt.model import GPTModule
 
 
-def predict_cmd(pl_model, tokenizer, pthru_so_far: str) -> str:
+def predict_cmd(pl_model, tokenizer, pthru_so_far: str, failed_cmds: List[str] = None) -> str:
     N_AHEAD = 9
     encoded_ptru = tokenizer.encode(pthru_so_far)
     pthru_token_ids = encoded_ptru.ids[:]
@@ -32,24 +32,39 @@ def predict_cmd(pl_model, tokenizer, pthru_so_far: str) -> str:
     x = torch.tensor(np.array(pthru_token_ids))
     x.to(pl_model.device)
 
-    predicted = pl_model.sample_ahead(x, n_samples=N_AHEAD, temperature=1.0, randsampling=False, top_k=None)
+    if failed_cmds:
+        attempts = 10
+        temp = 1.0
+        sample = True
+        top_k = 20
+    else:
+        attempts = 1
+        temp = 1.0
+        sample = False
+        top_k = None
 
-    y_predicted = predicted.cpu().tolist()
+    while attempts > 0:
+        attempts -= 1
+        predicted = pl_model.sample_ahead(x, n_samples=N_AHEAD, temperature=temp, randsampling=sample, top_k=top_k)
+        y_predicted = predicted.cpu().tolist()
+        print("****** PROMPT:", tokenizer.decode(y_predicted[max(0, len(y_predicted)-20-N_AHEAD):-N_AHEAD]))
 
-    print("****** PROMPT:", tokenizer.decode(y_predicted[max(0, len(y_predicted)-20-N_AHEAD):-N_AHEAD]))
-    predicted_cmd = y_predicted[-N_AHEAD:]
+        predicted_cmd = y_predicted[-N_AHEAD:]
+        end_marker = tokenizer.token_to_id("]<<<")
+        try:
+            idx_ = predicted_cmd.index(end_marker)
+            predicted_cmd = predicted_cmd[:idx_]
+        except ValueError:
+            print("end of command marker NOT FOUND")
 
-    end_marker = tokenizer.token_to_id("]<<<")
-    try:
-        idx_ = predicted_cmd.index(end_marker)
-        predicted_cmd = predicted_cmd[:idx_]
-    except ValueError:
-        print("end of command marker NOT FOUND")
+        action_str = tokenizer.decode(predicted_cmd)
+        if ' - ' in action_str:
+            action_str = action_str.replace(' - ', '-')
+        print("******* PREDICTED CMD:", action_str)
+        if not failed_cmds or action_str not in failed_cmds:
+            print(f"Trying alternate cmd: {action_str} previously tried: {failed_cmds}")
+            break   # try this, it hasn't failed yet
 
-    action_str = tokenizer.decode(predicted_cmd)
-    if ' - ' in action_str:
-        action_str = action_str.replace(' - ', '-')
-    print("******* PREDICTED CMD:", action_str)
     return action_str  # send the command to the game
 
 
@@ -68,13 +83,40 @@ def format_step_json(agent_kg, step_json):
     return outstr, pthru
 
 
+def grow_pthru_if_cmd_ok(pthru_so_far, prev_cmd, infos, obs, reward, pthru_step):
+    feedback = infos['feedback'][0]
+    feedback = feedback.lower()
+    if reward > 0:
+        cmd_was_ok = True
+    elif feedback.startswith(f'you {prev_cmd}'):
+        cmd_was_ok = True
+    elif feedback.startswith("you can't"):
+        cmd_was_ok = False
+    elif feedback.startswith('you need to'):
+        cmd_was_ok = False
+    elif feedback.startswith('i '):
+        cmd_was_ok = False
+    elif feedback.startswith('what do'):
+        cmd_was_ok = False
+    elif feedback.startswith('can only'):
+        cmd_was_ok = False
+    else:
+        cmd_was_ok = True
+
+    if cmd_was_ok:
+        return pthru_so_far + pthru_step, cmd_was_ok #don't need to try anything different
+    print(f"%%% CMD NOT OK: |{prev_cmd}| :", feedback)
+    return pthru_so_far, False  # try a different command
+
+
 def play_game(gamename, pl_model, tokenizer, gamedir=TW_VALIDATION_DIR, max_steps=45):
     _gamefile = f"{gamedir}/{gamename}.z8"
     _dones = [0]
     _rewards = [0]
     num_steps = 0
-    pthru_all = ""
+    pthru_so_far = ""
     next_cmds = ['start']
+    attempted_cmds = []  # cmds we've already tried for a given step that DIDN'T do anything
 
     gymenv, _obs, _infos = start_game_for_playthrough(_gamefile,
                                                       raw_obs_feedback=False,  # simplify obs and feedback text
@@ -88,18 +130,17 @@ def play_game(gamename, pl_model, tokenizer, gamedir=TW_VALIDATION_DIR, max_step
         #                                                          redis=None, do_write=False)
 
     _, pthru = format_step_json(agent_kg, step_json)
-    pthru_all += pthru
+    pthru_so_far += pthru
 
     if 'tw_o_step' in _infos:
         next_cmds = _infos['tw_o_step']
     else:
         next_cmds = [None] * len(_obs)
-    predicted_cmd = predict_cmd(pl_model, tokenizer, pthru_all)
+    predicted_cmd = predict_cmd(pl_model, tokenizer, pthru_so_far, failed_cmds=None)
     print(f"Oracle: |{next_cmds[0]}|  Model: |{predicted_cmd}|")
     next_cmds[0] = predicted_cmd
     success = False
     while not _dones[0] and num_steps < max_steps:
-        num_steps += 1
         _obs, _rewards, _dones, _infos = step_game_for_playthrough(gymenv, next_cmds)
         step_json = playthrough_step_to_json(next_cmds, _dones, _infos, _obs, _rewards, num_steps)
         # _redis_ops_, step_json = save_playthrough_step_info_to_redis(gamename, num_steps, _obs, _rewards, _dones,
@@ -109,16 +150,25 @@ def play_game(gamename, pl_model, tokenizer, gamedir=TW_VALIDATION_DIR, max_step
         if _dones[0] and _rewards[0] and next_cmds[0] == 'eat meal':
             success = True
 
+        print(step_json.keys())
+        assert len(step_json) == 1, f"Expecting one key like 'step_NN' {list(step_json.keys())}"
+        _, pthru_step = format_step_json(agent_kg, step_json)
+
+        prev_cmd = next_cmds[0]
+        pthru_so_far, cmd_was_ok = grow_pthru_if_cmd_ok(pthru_so_far,
+                                                        prev_cmd, _infos, _obs[0], _rewards[0], pthru_step)
+        if cmd_was_ok or len(attempted_cmds) > 10:
+            num_steps += 1
+            attempted_cmds = []
+        else:
+            attempted_cmds.append(prev_cmd)
+
         if 'tw_o_step' in _infos:
             next_cmds = _infos['tw_o_step']
         else:
             next_cmds = [None] * len(_obs)
-        print(step_json.keys())
-        assert len(step_json) == 1, f"Expecting one key like 'step_NN' {list(step_json.keys())}"
-        _, pthru = format_step_json(agent_kg, step_json)
-        pthru_all += pthru
 
-        predicted_cmd = predict_cmd(pl_model, tokenizer, pthru_all)
+        predicted_cmd = predict_cmd(pl_model, tokenizer, pthru_so_far, attempted_cmds)
         print(f"Oracle: |{next_cmds[0]}|  Model: |{predicted_cmd}|")
         if not _dones[0]:
             next_cmds[0] = predicted_cmd
@@ -126,7 +176,7 @@ def play_game(gamename, pl_model, tokenizer, gamedir=TW_VALIDATION_DIR, max_step
         print(pthru)
         print("============================================")
     print("%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%")
-    print(pthru_all)
+    print(pthru_so_far)
 
     gymenv.close()
     return num_steps, success
