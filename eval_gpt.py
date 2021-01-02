@@ -170,7 +170,7 @@ def play_game(gamename, pl_model, tokenizer, gamedir=TW_TRAINING_DIR, max_steps=
         prev_cmd = next_cmds[0]
         pthru_so_far, cmd_was_ok = grow_pthru_if_cmd_ok(pthru_so_far,
                                                         prev_cmd, _infos, _rewards[0], pthru_step)
-        if cmd_was_ok or len(attempted_cmds) > 10:
+        if cmd_was_ok or len(attempted_cmds) > 5:
             num_steps += 1
             attempted_cmds = []
         else:
@@ -182,7 +182,7 @@ def play_game(gamename, pl_model, tokenizer, gamedir=TW_TRAINING_DIR, max_steps=
             next_cmds = [None] * len(_obs)
 
         predicted_cmd = predict_cmd(pl_model, tokenizer, pthru_so_far, attempted_cmds)
-        print(f"Oracle: |{next_cmds[0]}|  Model: |{predicted_cmd}|")
+        print(f"Oracle: |{next_cmds[0]}|  Model: |{predicted_cmd}|  previous attempts: {attempted_cmds}")
         if not _dones[0]:
             next_cmds[0] = predicted_cmd
         print("============================================")
