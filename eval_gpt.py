@@ -175,10 +175,10 @@ def play_game(gamename, pl_model, tokenizer, gamedir=TW_TRAINING_DIR, max_steps=
         if cmd_was_ok:
             num_steps += 1
             attempted_cmds = []
-        elif prev_cmd in attempted_cmds or len(attempted_cmds) > 5:  # our previous attempts to randomize failed to find any other option
-            print("Stop trying to find alternatives:", prev_cmd, " has already been tried:", attempted_cmds)
-            num_steps += 1
         else:
+            if prev_cmd in attempted_cmds or len(attempted_cmds) > 5:  # our previous attempts to randomize failed to find any other option
+                print("Stop trying to find alternatives:", prev_cmd, " has already been tried:", attempted_cmds)
+                num_steps += 1
             attempted_cmds.append(prev_cmd)
 
         if 'tw_o_step' in _infos:
