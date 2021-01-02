@@ -34,7 +34,7 @@ def predict_cmd(pl_model, tokenizer, pthru_so_far: str, failed_cmds: List[str] =
 
     if failed_cmds:
         attempts = 10
-        temp = 2.0
+        temp = 1.0 + .5 * (len(failed_cmds)-1)  # increase the temperature if we fail repeatedly
         sample = True
         top_k = None
     else:
