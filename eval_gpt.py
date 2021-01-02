@@ -11,10 +11,10 @@ import torch
 import numpy as np
 
 import pytorch_lightning as pl
-from pytorch_lightning import Trainer, seed_everything
-from twutils.playthroughs import TW_VALIDATION_DIR
-from twutils.redis_playthroughs import format_playthrough_step, start_game_for_playthrough, \
-    playthrough_step_to_json, step_game_for_playthrough
+from pytorch_lightning import seed_everything
+from twutils.playthroughs import TW_TRAINING_DIR, CMD_START_TOKEN, CMD_END_TOKEN, GAME_START_CMD
+from twutils.playthroughs import start_game_for_playthrough, step_game_for_playthrough
+from twutils.playthroughs import playthrough_step_to_json, format_playthrough_step, concat_pthru_step
 
 from mingpt.pthru_dataset import PlaythroughDataModule
 from mingpt.model import GPTModule
@@ -27,7 +27,7 @@ def predict_cmd(pl_model, tokenizer, pthru_so_far: str, failed_cmds: List[str] =
     if len(pthru_token_ids) >= pl_model.model.block_size:
         pthru_token_ids = pthru_token_ids[-pl_model.model.block_size + 1:]
 
-    pthru_token_ids.append(tokenizer.token_to_id('>>>['))  # start of command marker
+    pthru_token_ids.append(tokenizer.token_to_id(CMD_START_TOKEN))  # start of command marker
 
     x = torch.tensor(np.array(pthru_token_ids))
     x.to(pl_model.device)
@@ -50,7 +50,7 @@ def predict_cmd(pl_model, tokenizer, pthru_so_far: str, failed_cmds: List[str] =
         print("****** PROMPT:", tokenizer.decode(y_predicted[max(0, len(y_predicted)-20-N_AHEAD):-N_AHEAD]))
 
         predicted_cmd = y_predicted[-N_AHEAD:]
-        end_marker = tokenizer.token_to_id("]<<<")
+        end_marker = tokenizer.token_to_id(CMD_END_TOKEN)
         try:
             idx_ = predicted_cmd.index(end_marker)
             predicted_cmd = predicted_cmd[:idx_]
@@ -83,20 +83,31 @@ def format_step_json(agent_kg, step_json):
     return outstr, pthru
 
 
-def grow_pthru_if_cmd_ok(pthru_so_far, prev_cmd, infos, obs, reward, pthru_step):
+def _first_word_of(cmd_str:str):
+    words = cmd_str.split()
+    if words:
+        return words[0]
+    return cmd_str
+
+
+def grow_pthru_if_cmd_ok(pthru_so_far, prev_cmd, infos, reward, pthru_step):
     feedback = infos['feedback'][0]
     feedback = feedback.lower()
     if reward > 0:
         cmd_was_ok = True
-    elif feedback.startswith(f'you {prev_cmd}'):
+    elif feedback.startswith(f'you {_first_word_of(prev_cmd)} '):
         cmd_was_ok = True
     elif feedback.startswith("you can't"):
         cmd_was_ok = False
     elif feedback.startswith('you need to'):
         cmd_was_ok = False
+    elif feedback.startswith("you haven't"):
+        cmd_was_ok = False
     elif feedback.startswith('i '):
         cmd_was_ok = False
     elif feedback.startswith('what do'):
+        cmd_was_ok = False
+    elif feedback.startswith('which do'):
         cmd_was_ok = False
     elif feedback.startswith('can only'):
         cmd_was_ok = False
@@ -104,18 +115,19 @@ def grow_pthru_if_cmd_ok(pthru_so_far, prev_cmd, infos, obs, reward, pthru_step)
         cmd_was_ok = True
 
     if cmd_was_ok:
-        return pthru_so_far + pthru_step, cmd_was_ok #don't need to try anything different
+        new_pthru = concat_pthru_step(pthru_so_far, pthru_step, keep_objectives=True)
+        return new_pthru, cmd_was_ok  # caller doesn't need to try anything different
     print(f"%%% CMD NOT OK: |{prev_cmd}| :", feedback)
     return pthru_so_far, False  # try a different command
 
 
-def play_game(gamename, pl_model, tokenizer, gamedir=TW_VALIDATION_DIR, max_steps=45):
+def play_game(gamename, pl_model, tokenizer, gamedir=TW_TRAINING_DIR, max_steps=45):
     _gamefile = f"{gamedir}/{gamename}.z8"
     _dones = [0]
     _rewards = [0]
     num_steps = 0
     pthru_so_far = ""
-    next_cmds = ['start']
+    next_cmds = [GAME_START_CMD]
     attempted_cmds = []  # cmds we've already tried for a given step that DIDN'T do anything
 
     gymenv, _obs, _infos = start_game_for_playthrough(_gamefile,
@@ -129,8 +141,9 @@ def play_game(gamename, pl_model, tokenizer, gamedir=TW_VALIDATION_DIR, max_step
         #                                                          next_cmds,
         #                                                          redis=None, do_write=False)
 
-    _, pthru = format_step_json(agent_kg, step_json)
-    pthru_so_far += pthru
+    _, pthru_step = format_step_json(agent_kg, step_json)
+    pthru_so_far, cmd_was_ok = grow_pthru_if_cmd_ok(pthru_so_far,
+                                                        GAME_START_CMD, _infos, 0, pthru_step)
 
     if 'tw_o_step' in _infos:
         next_cmds = _infos['tw_o_step']
@@ -156,7 +169,7 @@ def play_game(gamename, pl_model, tokenizer, gamedir=TW_VALIDATION_DIR, max_step
 
         prev_cmd = next_cmds[0]
         pthru_so_far, cmd_was_ok = grow_pthru_if_cmd_ok(pthru_so_far,
-                                                        prev_cmd, _infos, _obs[0], _rewards[0], pthru_step)
+                                                        prev_cmd, _infos, _rewards[0], pthru_step)
         if cmd_was_ok or len(attempted_cmds) > 10:
             num_steps += 1
             attempted_cmds = []
@@ -173,7 +186,11 @@ def play_game(gamename, pl_model, tokenizer, gamedir=TW_VALIDATION_DIR, max_step
         if not _dones[0]:
             next_cmds[0] = predicted_cmd
         print("============================================")
-        print(pthru)
+        if CMD_START_TOKEN in pthru_so_far:
+            _cmd_start_idx = pthru_so_far.rindex(CMD_START_TOKEN)  # last command
+            print(pthru_so_far[_cmd_start_idx:])
+        else:
+            print("NO CMD_START FOUND in pthru_so_far! -- ", pthru_step)
         print("============================================")
     print("%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%")
     print(pthru_so_far)

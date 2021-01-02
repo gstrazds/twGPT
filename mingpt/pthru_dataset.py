@@ -9,6 +9,13 @@ from torch.nn import functional as F
 import math
 from torch.utils.data import Dataset
 
+
+CMD_START_TOKEN = '>>>['
+CMD_END_TOKEN = ']<<<'
+GAME_START_CMD = 'start'
+
+
+
 def _span_len(span):
     return span[1]-span[0]+1
 
@@ -372,9 +379,9 @@ class PlaythroughDataModule(LightningDataModule):
         """
         self.tokenizer = Tokenizer.from_file(self.tokenizer_file)
         self.vocab_dict = self.tokenizer.get_vocab(with_added_tokens=True)
-        self.cmd_start_marker = self.tokenizer.token_to_id('>>>[')
-        self.cmd_end_marker = self.tokenizer.token_to_id(']<<<')
-        self.game_start_tok = self.tokenizer.token_to_id('start')
+        self.cmd_start_marker = self.tokenizer.token_to_id(CMD_START_TOKEN)
+        self.cmd_end_marker = self.tokenizer.token_to_id(CMD_END_TOKEN)
+        self.game_start_tok = self.tokenizer.token_to_id(GAME_START_CMD)
         if not self.vocab_size:
             self.vocab_size = len(self.vocab_dict)
             # self.vocab_size = self.tokenizer.get_vocab_size(with_added_tokens=True)  # this seems to be wrong!

@@ -32,7 +32,7 @@ def main(cfg: DictConfig) -> None:
     print(f"======================================= train_gpt.py - Start time: {start_time}\n{os.getcwd()}\n")
 
     if cfg.train_ftwc:
-        model_data_id = 'mingpt'
+        model_data_id = 'instrgpt'
         _datamodule = PlaythroughDataModule(
             data_file=cfg.data.data_file,
             val_file=cfg.data.val_file,

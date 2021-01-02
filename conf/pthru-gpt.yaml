@@ -80,6 +80,6 @@ eval:
   # mingpt-epoch=01-step=17257-val_loss=0.09.ckpt  # 9
   #  #dec18-startofepoch2.ckpt
   play_games: False
-  pthru_data_dir: /ssd2tb/ftwc/playthru_data/mingpt-test  #-valid
-  games_dir: /ssd2tb/ftwc/games/test/   # valid/
+  pthru_data_dir: /ssd2tb/ftwc/playthru_data/mingpt-valid
+  games_dir: /ssd2tb/ftwc/games/valid/
 
