@@ -22,4 +22,5 @@ trainer:
 
 eval:
   root_dir: /work2/gstrazds/ftwc
-  checkpoint: ${cwd_path}/saved_models/mingpt-epoch=3-step=0-train_loss_step=0.042-val_loss=0.442.ckpt
+  checkpoint: ${cwd_path}/saved_models/instrgpt-epoch=3-step=0-train_loss_step=0.018-val_loss=0.646.ckpt  # 90.61% 2021-01-03/10-24-18
+  # ${cwd_path}/saved_models/mingpt-epoch=3-step=0-train_loss_step=0.042-val_loss=0.442.ckpt
