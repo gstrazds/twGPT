@@ -33,7 +33,7 @@ def predict_cmd(pl_model, tokenizer, pthru_so_far: str, failed_cmds: List[str] =
     x.to(pl_model.device)
 
     if failed_cmds:
-        attempts = 10
+        attempts = 5
         temp = 1.0 + .5 * (len(failed_cmds)-1)  # increase the temperature if we fail repeatedly
         sample = True
         top_k = None
@@ -103,6 +103,8 @@ def grow_pthru_if_cmd_ok(pthru_so_far, prev_cmd, infos, reward, pthru_step):
         cmd_was_ok = False
     elif feedback.startswith('you need to'):
         cmd_was_ok = False
+    elif feedback.startswith('you already'):
+        cmd_was_ok = False
     elif feedback.startswith("you haven't"):
         cmd_was_ok = False
     elif feedback.startswith('i '):
@@ -154,7 +156,9 @@ def play_game(gamename, pl_model, tokenizer, gamedir=TW_TRAINING_DIR, max_steps=
     predicted_cmd = predict_cmd(pl_model, tokenizer, pthru_so_far, failed_cmds=None)
     print(f"Oracle: |{next_cmds[0]}|  Model: |{predicted_cmd}|")
     next_cmds[0] = predicted_cmd
-    success = False
+    won = None
+    lost = None
+    stuck = None
     while not _dones[0] and num_steps < max_steps:
         _obs, _rewards, _dones, _infos = step_game_for_playthrough(gymenv, next_cmds)
         step_json = playthrough_step_to_json(next_cmds, _dones, _infos, _obs, _rewards, num_steps)
@@ -162,46 +166,55 @@ def play_game(gamename, pl_model, tokenizer, gamedir=TW_TRAINING_DIR, max_steps=
         #                                                              _infos, next_cmds,
         #                                                              redis=None, do_write=False)
 
-        if _dones[0] and _rewards[0] and next_cmds[0] == 'eat meal':
-            success = True
+        prev_cmd = next_cmds[0]
 
         print(step_json.keys())
         assert len(step_json) == 1, f"Expecting one key like 'step_NN' {list(step_json.keys())}"
         _, pthru_step = format_step_json(agent_kg, step_json)
+        step_num = list(step_json.keys())[0]
+        step_num = int(step_num.split('_')[1])
 
-        prev_cmd = next_cmds[0]
+        if _dones[0]:
+            if _rewards[0] and prev_cmd == 'eat meal':
+                won = step_num
+            elif num_steps <= max_steps:
+                lost = step_num
+            # else:
+            #     stuck = step_num
+
         pthru_so_far, cmd_was_ok = grow_pthru_if_cmd_ok(pthru_so_far,
                                                         prev_cmd, _infos, _rewards[0], pthru_step)
         if cmd_was_ok:
             num_steps += 1
             attempted_cmds = []
         else:
-            if prev_cmd in attempted_cmds or len(attempted_cmds) > 5:  # our previous attempts to randomize failed to find any other option
+            if prev_cmd in attempted_cmds or len(attempted_cmds) > 4:  # our previous attempts to randomize failed to find any other option
                 print("Stop trying to find alternatives:", prev_cmd, " has already been tried:", attempted_cmds)
                 num_steps += 1
             attempted_cmds.append(prev_cmd)
 
-        if 'tw_o_step' in _infos:
-            next_cmds = _infos['tw_o_step']
-        else:
-            next_cmds = [None] * len(_obs)
-
-        predicted_cmd = predict_cmd(pl_model, tokenizer, pthru_so_far, attempted_cmds)
-        print(f"Oracle: |{next_cmds[0]}|  Model: |{predicted_cmd}|  previous attempts: {attempted_cmds}")
         if not _dones[0]:
+            predicted_cmd = predict_cmd(pl_model, tokenizer, pthru_so_far, attempted_cmds)
+            if 'tw_o_step' in _infos:
+                next_cmds = _infos['tw_o_step']
+            else:
+                next_cmds = [None] * len(_obs)
+
+            print(f"Oracle: |{next_cmds[0]}|  Model: |{predicted_cmd}|  previous attempts: {attempted_cmds}")
             next_cmds[0] = predicted_cmd
-        print("============================================")
-        if CMD_START_TOKEN in pthru_so_far:
-            _cmd_start_idx = pthru_so_far.rindex(CMD_START_TOKEN)  # last command
-            print(pthru_so_far[_cmd_start_idx:])
-        else:
-            print("NO CMD_START FOUND in pthru_so_far! -- ", pthru_step)
-        print("============================================")
+            print("============================================")
+            if CMD_START_TOKEN in pthru_so_far:
+                _cmd_start_idx = pthru_so_far.rindex(CMD_START_TOKEN)  # last command
+                print(pthru_so_far[_cmd_start_idx:])
+            else:
+                print("NO CMD_START FOUND in pthru_so_far! -- ", pthru_step)
+            print("============================================")
     print("%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%")
     print(pthru_so_far)
-
+    if not won and not lost:
+        stuck = step_num
     gymenv.close()
-    return num_steps, success
+    return num_steps, won, lost, stuck
 
 @hydra.main(config_path="conf", config_name="pthru-gpt")
 def main(cfg: DictConfig) -> None:
@@ -242,7 +255,12 @@ def main(cfg: DictConfig) -> None:
     # print(f"Validation dataset length={len(_datamodule.validation_dataset)} (raw:{len(_datamodule.validation_dataset.data)})")
     _datamodule.train_dataset.print_info("train_dataset")
     _datamodule.validation_dataset.print_info("validation_dataset")
-
+    wins = []
+    losses = []
+    loopers = []
+    n_wins = 0
+    n_losses = 0
+    n_stuck = 0
     dataset = _datamodule.validation_dataset
     if cfg.eval.play_games:
         filelist = glob.glob(f"{cfg.eval.pthru_data_dir}/*.pthru")
@@ -255,22 +273,39 @@ def main(cfg: DictConfig) -> None:
             total_played += 1
             print(f"[{i}] ------------ PLAYING: {filepath}")
             gn = pathlib.Path(filepath).stem
-            n_steps, success = play_game(gn, pl_model, tokenizer, gamedir=f"{cfg.eval.games_dir}")
+            num_steps, won, lost, stuck = play_game(gn, pl_model, tokenizer, gamedir=f"{cfg.eval.games_dir}")
+            if won:
+                n_steps = won
+                wins.append((n_steps, gn))
+                n_wins += 1
+            elif lost:
+                n_steps = lost
+                losses.append((n_steps,gn))
+                n_losses += 1
+            else:
+                n_steps = stuck
+                loopers.append((n_steps,gn))
+               n_stuck += 1
             print(f"[{i}] n_steps={n_steps} \t---- {gn} ")
-            if n_steps < 45:
+            if num_steps < 45:  # n_steps is not None and n_steps < 45:
                 maybe_ok += 1
-            if success:
+            if won:
                 num_successful += 1
-            n_steps_dict[gn] = n_steps
-        print(f"PLAYED: {total_played} success={num_successful} maybe_ok={maybe_ok}")
-        print(n_steps_dict)
+            n_steps_dict[gn] = (num_steps, n_steps, won is not None, lost is not None, stuck is not None)
+        print(f"PLAYED:{total_played} won:{n_wins} lost:{n_losses} stuck:{n_stuck}  (success={num_successful} maybe_ok={maybe_ok})")
+        dict_out = str(n_steps_dict)
+        print(dict_out)
+        with open(cfg.eval.checkpoint+".play_games.results", "a+") as f:
+            f.write(dict_out+'\n\n')
+            finish_time = datetime.datetime.now()
+            f.write(f"================ eval_gpt.py - Finished : {finish_time} -- elapsed: {finish_time-start_time}\n")
     else:
         debug_print_some_spans(dataset)
 
         total_matched, total_cmd_tokens = eval_predict_cmd_tokens(pl_model, dataset, tokenizer=_datamodule.tokenizer)
         print(f"MATCHED {total_matched}/{total_cmd_tokens} acc={total_matched / total_cmd_tokens}")
 
-    finish_time = datetime.datetime.now()
+        finish_time = datetime.datetime.now()
     print(f"================ eval_gpt.py - Finished : {finish_time} -- elapsed: {finish_time-start_time}")
 
 
