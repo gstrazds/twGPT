@@ -285,7 +285,7 @@ def main(cfg: DictConfig) -> None:
             else:
                 n_steps = stuck
                 loopers.append((n_steps,gn))
-               n_stuck += 1
+                n_stuck += 1
             print(f"[{i}] n_steps={n_steps} \t---- {gn} ")
             if num_steps < 45:  # n_steps is not None and n_steps < 45:
                 maybe_ok += 1

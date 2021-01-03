@@ -3,23 +3,23 @@
 
 gpus:  # set to a single int n to auto-select n gpus from all available, or to a list of gpu indices e.g. [0,1,2,3]
   - 0  # yaml format for a list
-#  - 1
+  - 1
 #  - 2
 #  - 3
 
 gpt:
-  block_size: 128  # spatial extent of the model for its context
-  n_embd: 256
+  block_size: 512  # spatial extent of the model for its context
+  n_embd: 512
 
 trainer:
-  batch_size: 192
-#  max_epochs: 10
-#  learning_rate: 6e-4
-#  patience: 6
-#  save_top_k: 10
+  batch_size: 32
+  max_epochs: 6
+  learning_rate: 3e-4
+  patience: 20
+  save_top_k: 20
 #  val_check_interval: 0.2
 #  limit_val_batches: 10000  # this should cover all of our current validation set (but maybe not the test set?)
 
 eval:
-  root_dir: /ssd2tb/ftwc
-#  checkpoint: ${cwd_path}/saved_models/12-31/mingpt-epoch=1-step=1469-train_loss_step=0.197-val_loss=0.662.ckpt  # 84.2 % (win 27/124)
+  root_dir: /work2/gstrazds/ftwc
+  checkpoint: ${cwd_path}/saved_models/mingpt-epoch=3-step=0-train_loss_step=0.042-val_loss=0.442.ckpt
