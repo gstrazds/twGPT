@@ -21,7 +21,6 @@ trainer:
 #  limit_val_batches: 10000  # this should cover all of our current validation set (but maybe not the test set?)
 
 eval:
+  root_dir: /ssd2tb/ftwc
 #  checkpoint: ${cwd_path}/saved_models/12-31/mingpt-epoch=1-step=1469-train_loss_step=0.197-val_loss=0.662.ckpt  # 84.2 % (win 27/124)
-  pthru_data_dir: /work2/gstrazds/ftwc/playthru_data/mingpt-valid
-  games_dir: /work2/gstrazds/ftwc/games/valid/
 
