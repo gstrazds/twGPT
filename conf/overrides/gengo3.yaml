@@ -23,3 +23,4 @@ trainer:
 eval:
   root_dir: /work2/gstrazds/ftwc
   checkpoint: ${cwd_path}/saved_models/instrgpt-epoch=2-step=0-train_loss_step=0.024-val_loss=0.574.ckpt
+  # instrgpt-epoch=2-step=0-train_loss_step=0.024-val_loss=0.574.ckpt   # 91.97% win:72/124 lost:22 (w56/222)
