@@ -13,8 +13,8 @@ gpt:
 
 trainer:
   batch_size: 32
-  max_epochs: 6
-  learning_rate: 6e-4
+  max_epochs: 4
+  learning_rate: 3e-4
   patience: 20
   save_top_k: 20
 #  val_check_interval: 0.2
