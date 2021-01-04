@@ -131,15 +131,18 @@ class SamplePredictions(Callback):
         self.out_dir = out_dir
 
     def on_validation_end(self, trainer, pl_module):
-        n_matched, total_cmd_tokens = eval_predict_cmd_tokens(pl_module, self.dataset, tokenizer=self.tokenizer)
-        cmd_prediction_acc = n_matched / total_cmd_tokens
-        print("VALIDATION CMD_TOKEN_PREDICTION_ACC =", cmd_prediction_acc)
+        n_matched, total_cmd_tokens, full_matches, num_cmds = \
+                                eval_predict_cmd_tokens(pl_module, self.dataset, tokenizer=self.tokenizer)
+        cmd_token_acc = n_matched / total_cmd_tokens
+        cmd_acc = full_matches / num_cmds
+        print(f"VALIDATION CMD_TOKEN_ACC = {cmd_token_acc:.5f}  CMD_ACC = {cmd_acc:.5f}")
         # (NOT YET SUPPORTED): pl_module.log("val_acc", n_matched / total_cmd_tokens, on_step=False, on_epoch=True, prog_bar=True)
-        pl_module.logger.log_metrics({"cmd_acc": cmd_prediction_acc}, step=trainer.global_step)  #n_matched / total_cmd_tokens)
+        pl_module.logger.log_metrics({"cmd_acc": cmd_acc}, step=trainer.global_step)  #n_matched / total_cmd_tokens)
+        pl_module.logger.log_metrics({"tok_acc": cmd_token_acc}, step=trainer.global_step)  #n_matched / total_cmd_tokens)
         if self.out_dir and (not hasattr(trainer, "rank") or trainer.rank == 0):
             with open(self.out_dir +
-                      f'cmd_acc_{trainer.current_epoch}-step{trainer.global_step:05d}_{cmd_prediction_acc}.txt', 'w') as outfile:
-                outfile.write(f"{cmd_prediction_acc}\t{n_matched}\t{total_cmd_tokens}")
+                      f'cmd_acc_{trainer.current_epoch}-step{trainer.global_step:05d}_{cmd_token_acc:.6f}_{cmd_acc:.6f}.txt', 'w') as outfile:
+                outfile.write(f"{cmd_token_acc}\t{n_matched}\t{total_cmd_tokens}\t{cmd_acc}\t{full_matches}\t{num_cmds}\t{trainer.current_epoch}\t{trainer.global_step}")
 
 
         # SAMPLE_LEN = 4

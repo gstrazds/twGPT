@@ -255,14 +255,14 @@ def main(cfg: DictConfig) -> None:
     # print(f"Validation dataset length={len(_datamodule.validation_dataset)} (raw:{len(_datamodule.validation_dataset.data)})")
     _datamodule.train_dataset.print_info("train_dataset")
     _datamodule.validation_dataset.print_info("validation_dataset")
-    wins = []
-    losses = []
-    loopers = []
-    n_wins = 0
-    n_losses = 0
-    n_stuck = 0
     dataset = _datamodule.validation_dataset
     if cfg.eval.play_games:
+        wins = []
+        losses = []
+        loopers = []
+        n_wins = 0
+        n_losses = 0
+        n_stuck = 0
         filelist = glob.glob(f"{cfg.eval.pthru_data_dir}/*.pthru")
         print(len(filelist))
         maybe_ok = 0
@@ -302,8 +302,10 @@ def main(cfg: DictConfig) -> None:
     else:
         debug_print_some_spans(dataset)
 
-        total_matched, total_cmd_tokens = eval_predict_cmd_tokens(pl_model, dataset, tokenizer=_datamodule.tokenizer)
-        print(f"MATCHED {total_matched}/{total_cmd_tokens} acc={total_matched / total_cmd_tokens}")
+        tokens_matched, total_cmd_tokens, full_matches, num_cmds = eval_predict_cmd_tokens(pl_model, dataset,
+                                                                                           tokenizer=_datamodule.tokenizer)
+        print(f"TOKENS: {tokens_matched}/{total_cmd_tokens} acc={tokens_matched / total_cmd_tokens}")
+        print(f"CMDS: {full_matches}/{num_cmds} acc={full_matches / num_cmds}")
 
         finish_time = datetime.datetime.now()
     print(f"================ eval_gpt.py - Finished : {finish_time} -- elapsed: {finish_time-start_time}")
@@ -312,6 +314,8 @@ def main(cfg: DictConfig) -> None:
 def eval_predict_cmd_tokens(pl_model, dataset, tokenizer=None):
     total_cmd_tokens = 0
     total_matched = 0
+    full_matches = 0
+    total_cmds = 0
     n_printed = 0
     # for idx in range(1, len(dataset.cmd_spans)):   # skip the initial 'start' command
     #     x, y, cmd_start_pos = dataset.get_cmd_prompt(idx, continuation=-1)
@@ -321,6 +325,7 @@ def eval_predict_cmd_tokens(pl_model, dataset, tokenizer=None):
         if igame % 10 == 0:
             print(f"+{igame} [:{dataset.get_num_steps(igame)}] --------------------------")
         for istep in range(1, dataset.get_num_steps(igame)):
+            total_cmds += 1
             #_span_debug, _, _ = dataset.get_token_idxs(igame, 0, istep)
             #print(f"get_token_idxs(igame={igame}, 0, end_step={istep})  {_span_debug}")
             #print(dataset.data[_span_debug[0]:_span_debug[1]+1])
@@ -360,7 +365,9 @@ def eval_predict_cmd_tokens(pl_model, dataset, tokenizer=None):
             # assert n_matched == n_matched_torch, f"{n_matched} {n_matched_torch}"
             # assert n_cmd_tokens == cmd_len
 
-            if n_matched_torch != n_cmd_tokens:
+            if n_matched_torch == n_cmd_tokens:
+                full_matches += 1
+            else:  # n_matched_torch != n_cmd_tokens:
                 n_printed += 1
                 n_matched = n_matched_torch
                 if n_printed < 10 or n_printed % 100 == 0 or igame > dataset.num_games - 3:
@@ -372,7 +379,7 @@ def eval_predict_cmd_tokens(pl_model, dataset, tokenizer=None):
 
             total_cmd_tokens += n_cmd_tokens
             total_matched += n_matched_torch
-    return total_matched, total_cmd_tokens
+    return total_matched, total_cmd_tokens, full_matches, total_cmds
 
 
 def debug_print_some_spans(dataset):
