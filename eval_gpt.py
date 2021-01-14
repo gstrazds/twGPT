@@ -177,7 +177,7 @@ def play_game(gamename, pl_model, tokenizer, gamedir=TW_TRAINING_DIR, max_steps=
         if _dones[0]:
             if _rewards[0] and prev_cmd == 'eat meal':
                 won = step_num
-            elif num_steps <= max_steps:
+            elif num_steps < max_steps:
                 lost = step_num
             # else:
             #     stuck = step_num
