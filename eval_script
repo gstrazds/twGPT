@@ -1,0 +1,7 @@
+# python eval_gpt.py
+
+python eval_gpt.py eval.play_games=True eval.which_set=test > play_test_games-01-04_20-49-19.out
+
+python eval_gpt.py eval.play_games=True eval.which_set=valid > play_validation_games-01-04_20-49-19.out
+
+
