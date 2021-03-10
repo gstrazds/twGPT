@@ -30,7 +30,7 @@ def predict_cmd(pl_model, tokenizer, pthru_so_far: str, failed_cmds: List[str] =
     pthru_token_ids.append(tokenizer.token_to_id(CMD_START_TOKEN))  # start of command marker
 
     x = torch.tensor(np.array(pthru_token_ids))
-    x.to(pl_model.device)
+    x_dev = x.to(pl_model.device)
 
     if failed_cmds:
         attempts = 5
@@ -45,7 +45,7 @@ def predict_cmd(pl_model, tokenizer, pthru_so_far: str, failed_cmds: List[str] =
 
     while attempts > 0:
         attempts -= 1
-        predicted = pl_model.sample_ahead(x, n_samples=N_AHEAD, temperature=temp, randsampling=sample, top_k=top_k)
+        predicted = pl_model.sample_ahead(x_dev, n_samples=N_AHEAD, temperature=temp, randsampling=sample, top_k=top_k)
         y_predicted = predicted.cpu().tolist()
         print("****** PROMPT:", tokenizer.decode(y_predicted[max(0, len(y_predicted)-20-N_AHEAD):-N_AHEAD]))
 
@@ -249,7 +249,8 @@ def main(cfg: DictConfig) -> None:
     print("USING PyTorch Lightning")
 
     pl_model = GPTModule.load_from_checkpoint(checkpoint_path=cfg.eval.checkpoint)
-    # pl_model.to(torch.device('cuda'))
+    if torch.cuda.is_available():
+        pl_model.eval().cuda(device=0)
 
     # print(f"Training dataset length={len(_datamodule.train_dataset)} (raw:{len(_datamodule.train_dataset.data)})")
     # print(f"Validation dataset length={len(_datamodule.validation_dataset)} (raw:{len(_datamodule.validation_dataset.data)})")
