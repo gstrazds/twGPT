@@ -249,8 +249,11 @@ def main(cfg: DictConfig) -> None:
     print("USING PyTorch Lightning")
 
     pl_model = GPTModule.load_from_checkpoint(checkpoint_path=cfg.eval.checkpoint)
-    if torch.cuda.is_available():
-        pl_model.eval().cuda(device=0)
+    if torch.cuda.is_available() and cfg.general.use_cuda:
+        if isinstance(cfg.gpus, list):
+            pl_model.eval().cuda(device=cfg.gpus[0])
+        else:
+            pl_model.eval().cuda(device=0)
 
     # print(f"Training dataset length={len(_datamodule.train_dataset)} (raw:{len(_datamodule.train_dataset.data)})")
     # print(f"Validation dataset length={len(_datamodule.validation_dataset)} (raw:{len(_datamodule.validation_dataset.data)})")
@@ -258,6 +261,8 @@ def main(cfg: DictConfig) -> None:
     _datamodule.validation_dataset.print_info("validation_dataset")
     dataset = _datamodule.validation_dataset
     if cfg.eval.play_games:
+        # for each .pthru file in cfg.eval.pthru_data_dir, play the corresponding game from cfg.eval.games_dir
+        # NOTE: the .pthru data is not used, except to select a game name using pathlib.Path(filepath).stem
         wins = []
         losses = []
         loopers = []
