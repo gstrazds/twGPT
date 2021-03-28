@@ -6,6 +6,7 @@ from typing import List, Dict, Tuple, Any, Optional
 
 import datetime
 import hydra
+import omegaconf
 from omegaconf import OmegaConf, DictConfig
 import torch
 import numpy as np
@@ -250,7 +251,9 @@ def main(cfg: DictConfig) -> None:
 
     pl_model = GPTModule.load_from_checkpoint(checkpoint_path=cfg.eval.checkpoint)
     if torch.cuda.is_available() and cfg.general.use_cuda:
-        if isinstance(cfg.gpus, list):
+        # print(cfg.gpus, type(cfg.gpus))
+        if isinstance(cfg.gpus, omegaconf.listconfig.ListConfig):
+            print("USING CUDA device=",cfg.gpus[0])
             pl_model.eval().cuda(device=cfg.gpus[0])
         else:
             pl_model.eval().cuda(device=0)
