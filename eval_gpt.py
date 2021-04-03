@@ -13,6 +13,8 @@ import numpy as np
 
 import pytorch_lightning as pl
 from pytorch_lightning import seed_everything
+from pytorch_lightning.utilities import rank_zero_info
+
 from twutils.playthroughs import TW_TRAINING_DIR, CMD_START_TOKEN, CMD_END_TOKEN, GAME_START_CMD
 from twutils.playthroughs import start_game_for_playthrough, step_game_for_playthrough
 from twutils.playthroughs import playthrough_step_to_json, format_playthrough_step, concat_pthru_step
@@ -311,7 +313,7 @@ def main(cfg: DictConfig) -> None:
     else:
         debug_print_some_spans(dataset)
 
-        tokens_matched, total_cmd_tokens, full_matches, num_cmds = eval_predict_cmd_tokens(pl_model, dataset,
+        tokens_matched, total_cmd_tokens, full_matches, num_cmds = eval_predict_cmd_tokens(None, pl_model, dataset,
                                                                                            tokenizer=_datamodule.tokenizer)
         print(f"TOKENS: {tokens_matched}/{total_cmd_tokens} acc={tokens_matched / total_cmd_tokens}")
         print(f"CMDS: {full_matches}/{num_cmds} acc={full_matches / num_cmds}")
@@ -320,19 +322,25 @@ def main(cfg: DictConfig) -> None:
     print(f"================ eval_gpt.py - Finished : {finish_time} -- elapsed: {finish_time-start_time}")
 
 
-def eval_predict_cmd_tokens(pl_model, dataset, tokenizer=None):
+def eval_predict_cmd_tokens(trainer, pl_model, dataset, tokenizer=None):
     total_cmd_tokens = 0
     total_matched = 0
     full_matches = 0
     total_cmds = 0
     n_printed = 0
+    rank = 0
+    if trainer:
+        if hasattr(trainer, "rank"):
+            rank = trainer.rank
+
     # for idx in range(1, len(dataset.cmd_spans)):   # skip the initial 'start' command
     #     x, y, cmd_start_pos = dataset.get_cmd_prompt(idx, continuation=-1)
     #     if idx % 200 == 0 and total_matched == total_cmd_tokens:
     #         print(idx, "...")  # let them know we're actually doing something...
     for igame in range(dataset.num_games):
         if igame % 10 == 0:
-            print(f"+{igame} [:{dataset.get_num_steps(igame)}] --------------------------")
+            if rank == 0:
+                print(f"+{igame} [:{dataset.get_num_steps(igame)}] --------------------------")
         for istep in range(1, dataset.get_num_steps(igame)):
             total_cmds += 1
             #_span_debug, _, _ = dataset.get_token_idxs(igame, 0, istep)
@@ -380,11 +388,12 @@ def eval_predict_cmd_tokens(pl_model, dataset, tokenizer=None):
                 n_printed += 1
                 n_matched = n_matched_torch
                 if n_printed < 10 or n_printed % 100 == 0 or igame > dataset.num_games - 3:
-                    print(f" {igame}.{istep}  ...   \t{n_matched} / {n_cmd_tokens}   \tacc: {n_matched / n_cmd_tokens:4f}")
-                    if tokenizer:
-                        y_predicted = predicted.cpu().tolist()
-                        y_ids = y_trunc.detach().cpu().tolist()
-                        show_sample(tokenizer, f"{igame}.{istep}", y_predicted, y_ids, n_sampled=n_cmd_tokens)
+                    if rank == 0:
+                        print(f" {igame}.{istep}  ...   \t{n_matched} / {n_cmd_tokens}   \tacc: {n_matched / n_cmd_tokens:4f}")
+                        if tokenizer:
+                            y_predicted = predicted.cpu().tolist()
+                            y_ids = y_trunc.detach().cpu().tolist()
+                            show_sample(tokenizer, f"{igame}.{istep}", y_predicted, y_ids, n_sampled=n_cmd_tokens)
 
             total_cmd_tokens += n_cmd_tokens
             total_matched += n_matched_torch

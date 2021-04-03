@@ -16,8 +16,11 @@ from tqdm import tqdm
 from mingpt.pthru_dataset import PlaythroughDataModule
 from mingpt.char_dataset import CharDataModule
 from mingpt.model import GPTModule
-import mingpt
-from mingpt.trainer import TrainerConfig
+from mingpt.callback import CUDACallback
+from mingpt.lr_decay import LearningRateDecayCallback
+
+# import mingpt
+# from mingpt.trainer import TrainerConfig
 
 @hydra.main(config_path="conf", config_name="pthru-gpt")
 def main(cfg: DictConfig) -> None:
@@ -56,7 +59,7 @@ def main(cfg: DictConfig) -> None:
 
     _datamodule.prepare_data()
     train_dataset = _datamodule.train_dataset
-    cfg.trainer.final_tokens = 2 * len(train_dataset) * train_dataset.block_size
+    cfg.trainer.final_tokens = 2 * len(train_dataset) * cfg.gpt.block_size
     cfg.gpt.vocab_size = _datamodule.vocab_size
 
     print(f"Vocabulary size={cfg.gpt.vocab_size}")
@@ -85,7 +88,13 @@ def main(cfg: DictConfig) -> None:
         mode='min',
     )
 
-    callback_list = [checkpoint_callback]
+    lr_decay = LearningRateDecayCallback(
+        learning_rate=6e-4,
+        warmup_tokens=512 * 20,
+        final_tokens=cfg.trainer.final_tokens, # = 2 * len(train_dataset) * cfg.gpt.block_size
+    )
+
+    callback_list = [checkpoint_callback, lr_decay, CUDACallback()]
     if cfg.trainer.patience > 0:
         early_stopping = EarlyStopping('val_loss', mode='min', patience=cfg.trainer.patience)
         callback_list.append(early_stopping)
@@ -132,7 +141,7 @@ class SamplePredictions(Callback):
 
     def on_validation_end(self, trainer, pl_module):
         n_matched, total_cmd_tokens, full_matches, num_cmds = \
-                                eval_predict_cmd_tokens(pl_module, self.dataset, tokenizer=self.tokenizer)
+                                eval_predict_cmd_tokens(trainer, pl_module, self.dataset, tokenizer=self.tokenizer)
         cmd_token_acc = n_matched / total_cmd_tokens
         cmd_acc = full_matches / num_cmds
         print(f"VALIDATION CMD_TOKEN_ACC = {cmd_token_acc:.5f}  CMD_ACC = {cmd_acc:.5f}")

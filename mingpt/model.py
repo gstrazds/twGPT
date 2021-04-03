@@ -187,31 +187,31 @@ class GPTModule(pl.LightningModule):
         # loss = self.criterion(logits.view(-1, logits.size(-1)), x.view(-1).long())
 
         logits, loss = self.model(x, y)
-        self.adjust_learning_rate(y)
+
+        # self.adjust_learning_rate(y)
 
         self.log('train_loss', loss, on_step=True, on_epoch=True, prog_bar=True)
         return {"loss": loss}
 
-#TODO: decay learning rate
-    def adjust_learning_rate(self, y):
-        # decay the learning rate based on our progress
-        config = self.hparams.trainer
-        if config.lr_decay:
-            self.tokens += (y >= 0).sum()  # number of tokens processed this step (i.e. label is not -100)
-            if self.tokens < config.warmup_tokens:
-                # linear warmup
-                lr_mult = float(self.tokens) / float(max(1, config.warmup_tokens))
-            else:
-                # cosine learning rate decay
-                progress = float(self.tokens - config.warmup_tokens) / float(
-                    max(1, config.final_tokens - config.warmup_tokens))
-                lr_mult = max(0.1, 0.5 * (1.0 + math.cos(math.pi * progress)))
-            lr = config.learning_rate * lr_mult
-            for param_group in self._optimizer.param_groups:
-                param_group['lr'] = lr
-        else:
-            lr = config.learning_rate
-        self.log('learning_rate', lr, on_step=True, on_epoch=False, prog_bar=True)
+# decay learning rate (moved to lr_decay.py LearningRateDecayCallback
+#     def adjust_learning_rate(self, y):
+#         # decay the learning rate based on our progress
+#         config = self.hparams.trainer
+#         if config.lr_decay:
+#             self.tokens += (y >= 0).sum()  # number of tokens processed this step (i.e. label is not -100)
+#             if self.tokens < config.warmup_tokens:
+#                 # linear warmup
+#                 lr_mult = float(self.tokens) / float(max(1, config.warmup_tokens))
+#             else:
+#                 # cosine learning rate decay
+#                 progress = float(self.tokens - config.warmup_tokens) / float(
+#                     max(1, config.final_tokens - config.warmup_tokens))
+#                 lr_mult = max(0.1, 0.5 * (1.0 + math.cos(math.pi * progress)))
+#             lr = config.learning_rate * lr_mult
+#             for param_group in self._optimizer.param_groups:
+#                 param_group['lr'] = lr
+#         else:
+#             lr = config.learning_rate
 
     def validation_step(self, batch, batch_idx):
         if len(batch) == 3:
