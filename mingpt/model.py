@@ -16,6 +16,9 @@ from torch.nn import functional as F
 
 import pytorch_lightning as pl
 
+from .utils import sample
+
+
 logger = logging.getLogger(__name__)
 
 class GPTConfig:
@@ -101,9 +104,6 @@ class Block(nn.Module):
         return x
 
 
-from .utils import sample
-
-
 class GPTModule(pl.LightningModule):
     """  the full GPT language model, with a context size of block_size """
     def __init__(self, config):
@@ -170,8 +170,7 @@ class GPTModule(pl.LightningModule):
         #                 'name': 'cos_anneal_lr',
         #                 'interval': 'step',
         #                 'frequency': 1}
-
-        self._optimizer = optimizer  # shouldn't be necessary for pt_lightning
+#        self._optimizer = optimizer  # shouldn't be necessary for pt_lightning
 
         return optimizer  #, lr_scheduler
 
@@ -254,8 +253,10 @@ class GPTModule(pl.LightningModule):
 
     def sample_ahead(self, x, n_samples, temperature=1.0, randsampling=False, top_k=None):
         x_in = x[None, ...]
-        preds = sample(self.model, x_in, steps=n_samples, temperature=temperature, sample=randsampling, top_k=top_k)
+        preds = sample(self.model, self.hparams.gpt.block_size, x_in, steps=n_samples, temperature=temperature, sample=randsampling, top_k=top_k)
+        print(f"sample_ahead: preds.size={preds.size()}")
         return preds.detach()[0]
+
 
 
 class GPT(nn.Module):
