@@ -31,7 +31,7 @@ def sample(model, block_size, x, steps, temperature=1.0, sample=False, top_k=Non
         logits, _ = model(x_cond)
         # pluck the logits at the final step and scale by temperature
         logits = logits[:, -1, :] / temperature
-        print(f"sample: logits.size = {logits.size()}")
+        # print(f"sample: logits.size = {logits.size()}")
         # optionally crop probabilities to only the top k options
         if top_k is not None:
             logits = top_k_logits(logits, top_k)

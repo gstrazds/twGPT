@@ -9,24 +9,20 @@ from omegaconf import OmegaConf, DictConfig
 
 import pytorch_lightning as pl
 from pytorch_lightning import seed_everything
-from pytorch_lightning.callbacks import ModelCheckpoint
-
-from tqdm import tqdm
+from pytorch_lightning.callbacks import Callback, EarlyStopping, ModelCheckpoint
 
 from mingpt.pthru_dataset import PlaythroughDataModule
 from mingpt.char_dataset import CharDataModule
-from mingpt.model import GPTModule
+from mingpt.model import GPTLitModule, eval_predict_cmd_tokens
 from mingpt.callback import CUDACallback
 from mingpt.lr_decay import LearningRateDecayCallback
 
-# import mingpt
-# from mingpt.trainer import TrainerConfig
 
 @hydra.main(config_path="conf", config_name="pthru-gpt")
 def main(cfg: DictConfig) -> None:
     cfg.cwd_path = hydra.utils.to_absolute_path(cfg.cwd_path)
 
-    print(OmegaConf.to_yaml(cfg, resolve=True))
+    # print(OmegaConf.to_yaml(cfg, resolve=True))
     print("cwd_path = ", cfg.cwd_path)
 
     seed_everything(cfg.general.random_seed)
@@ -59,23 +55,18 @@ def main(cfg: DictConfig) -> None:
 
     _datamodule.prepare_data()
     train_dataset = _datamodule.train_dataset
-    cfg.trainer.final_tokens = 2 * len(train_dataset) * cfg.gpt.block_size
+
+    # dynamically set some config/hparam values (ensures that they get saved with results of each run)
     cfg.gpt.vocab_size = _datamodule.vocab_size
+    cfg.trainer.decay_tokens = 2 * len(train_dataset) * cfg.gpt.block_size
 
-    print(f"Vocabulary size={cfg.gpt.vocab_size}")
+    print(OmegaConf.to_yaml(cfg, resolve=True))
+    # print(f"Vocabulary size={cfg.gpt.vocab_size}")
 
-    pl_model = GPTModule(cfg)
+    pl_model = GPTLitModule(cfg)
 
     # pl_model.load_from_checkpoint(checkpoint_path=cfg.cwd_path + "/saved_models/dec18-startofepoch2.ckpt")
 
-# # initialize a trainer instance and kick off training
-# if not cfg.use_lightning:
-#     tconf = TrainerConfig(**cfg.trainer)
-#     print(f"Trainer Config: betas={tconf.betas}, final_tokens={tconf.final_tokens}")
-#     trainer = mingpt.trainer.Trainer(pl_model.model, train_dataset, None, tconf)
-#     optimizer = pl_model.configure_optimizers()
-#     trainer.train(optimizer)
-# else:
     print("USING PyTorch Lightning Trainer")
     _datamodule.train_dataset.print_info("train_dataset")
     _datamodule.validation_dataset.print_info("validation_dataset")
@@ -88,22 +79,26 @@ def main(cfg: DictConfig) -> None:
         mode='min',
     )
 
-    lr_decay = LearningRateDecayCallback(
-        learning_rate=6e-4,
-        warmup_tokens=512 * 20,
-        final_tokens=cfg.trainer.final_tokens, # = 2 * len(train_dataset) * cfg.gpt.block_size
-    )
+    callback_list = [checkpoint_callback]
 
-    callback_list = [checkpoint_callback, lr_decay, CUDACallback()]
+    if cfg.trainer.lr_decay:
+        lr_decay = LearningRateDecayCallback(
+            learning_rate=cfg.trainer.learning_rate,
+            warmup_tokens=cfg.trainer.warmup_tokens,
+            decay_tokens=cfg.trainer.decay_tokens, # = 2 * len(train_dataset) * cfg.gpt.block_size
+        )
+        callback_list.append(lr_decay)
+
     if cfg.trainer.patience > 0:
         early_stopping = EarlyStopping('val_loss', mode='min', patience=cfg.trainer.patience)
+        # early_stopping = EarlyStopping('val_acc', mode='max', patience=5)
         callback_list.append(early_stopping)
-    #early_stopping = EarlyStopping('val_acc', mode='max', patience=5)
-
 
     if cfg.train_ftwc:
         show_samples_callback = SamplePredictions(_datamodule.tokenizer, _datamodule.validation_dataset, out_dir="./", how_many=5)
         callback_list.append(show_samples_callback)
+
+    callback_list.append(CUDACallback())
 
     trainer = pl.Trainer(gpus=cfg.gpus,
                          max_epochs=cfg.trainer.max_epochs,
@@ -117,8 +112,6 @@ def main(cfg: DictConfig) -> None:
     print(f"================ train_gpt.py - Finished : {finish_time} -- elapsed: {finish_time-start_time}")
 
 
-from pytorch_lightning.callbacks import Callback, EarlyStopping
-
 def show_sample(tokenizer, idx, y_predicted, y_ids, n_sampled=5):
     # print(f"!{idx}!", tokenizer.decode(y_ids))
     print(f"[{idx}]", tokenizer.decode(y_ids[0:6]), '[....]',
@@ -129,7 +122,6 @@ def show_sample(tokenizer, idx, y_predicted, y_ids, n_sampled=5):
           tokenizer.decode(y_predicted[-5-n_sampled:]))
     print()
 
-from eval_gpt import eval_predict_cmd_tokens
 
 class SamplePredictions(Callback):
     def __init__(self, tokenizer, dataset, how_many=3, out_dir=None, **kwargs):

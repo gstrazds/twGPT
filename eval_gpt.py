@@ -20,7 +20,7 @@ from twutils.playthroughs import start_game_for_playthrough, step_game_for_playt
 from twutils.playthroughs import playthrough_step_to_json, format_playthrough_step, concat_pthru_step
 
 from mingpt.pthru_dataset import PlaythroughDataModule
-from mingpt.model import GPTModule
+from mingpt.model import GPTLitModule, eval_predict_cmd_tokens
 
 
 def predict_cmd(pl_module, tokenizer, pthru_so_far: str, failed_cmds: List[str] = None) -> str:
@@ -246,12 +246,12 @@ def main(cfg: DictConfig) -> None:
     _datamodule.prepare_data()
     tokenizer = _datamodule.tokenizer
     train_dataset = _datamodule.train_dataset
-    cfg.trainer.final_tokens = 2 * len(train_dataset) * train_dataset.block_size
+    cfg.trainer.decay_tokens = 2 * len(train_dataset) * train_dataset.block_size
     cfg.gpt.vocab_size = _datamodule.vocab_size
 
     print("USING PyTorch Lightning")
 
-    pl_model = GPTModule.load_from_checkpoint(checkpoint_path=cfg.eval.checkpoint)
+    pl_model = GPTLitModule.load_from_checkpoint(checkpoint_path=cfg.eval.checkpoint)
     if torch.cuda.is_available() and cfg.general.use_cuda:
         # print(cfg.gpus, type(cfg.gpus))
         if isinstance(cfg.gpus, omegaconf.listconfig.ListConfig):
@@ -322,88 +322,6 @@ def main(cfg: DictConfig) -> None:
     print(f"================ eval_gpt.py - Finished : {finish_time} -- elapsed: {finish_time-start_time}")
 
 
-def eval_predict_cmd_tokens(trainer, pl_module, dataset, tokenizer=None):
-    total_cmd_tokens = 0
-    total_matched = 0
-    full_matches = 0
-    total_cmds = 0
-    n_printed = 0
-    rank = 0
-    if trainer:
-        if hasattr(trainer, "rank"):
-            rank = trainer.rank
-
-    max_eval_games = 1000000 # infinity for all practical purposes
-    max_eval_games = pl_module.hparams.trainer.limit_val_batches
-
-    # for idx in range(1, len(dataset.cmd_spans)):   # skip the initial 'start' command
-    #     x, y, cmd_start_pos = dataset.get_cmd_prompt(idx, continuation=-1)
-    #     if idx % 200 == 0 and total_matched == total_cmd_tokens:
-    #         print(idx, "...")  # let them know we're actually doing something...
-    for igame in range(min(dataset.num_games, max_eval_games)):
-        if igame % 10 == 0:
-            if rank == 0:
-                print(f"+{igame} [:{dataset.get_num_steps(igame)}] --------------------------")
-        if hasattr(pl_module, 'reset_episode'):
-            pl_module.reset_episode()
-        for istep in range(1, dataset.get_num_steps(igame)):
-            total_cmds += 1
-            #_span_debug, _, _ = dataset.get_token_idxs(igame, 0, istep)
-            #print(f"get_token_idxs(igame={igame}, 0, end_step={istep})  {_span_debug}")
-            #print(dataset.data[_span_debug[0]:_span_debug[1]+1])
-            x, y, cmd_start_pos = dataset.get_cmd_prompt_for_gamestep(igame, istep, continuation=-1)
-            cmd_start_pos = cmd_start_pos.to(pl_module.device)
-            x = x.to(pl_module.device)
-            y = y.to(pl_module.device)
-            cmd_len = len(x) - int(cmd_start_pos) - 1
-            x_trunc = x[0:int(cmd_start_pos)+1]
-            y_trunc = y[0:int(cmd_start_pos)+cmd_len]
-            #print(f"len(x)={len(x)}, cmd_start_pos={cmd_start_pos}" )
-            #print("cmd_len", cmd_len)
-            #print("x:", x)
-            #print("x_trunc:", x_trunc)
-            #print(f"len(x_trunc) = {len(x_trunc)}")
-            assert x_trunc[int(cmd_start_pos)] == dataset.cmd_start, f"{cmd_start_pos}: {x_trunc[int(cmd_start_pos)]} {x_trunc}"
-            predicted = pl_module.sample_ahead(x_trunc, n_samples=cmd_len, temperature=1.0, randsampling=False, top_k=None)
-
-            assert len(predicted) == len(y_trunc)+1, f"{len(predicted)} {len(y_trunc)}"
-            assert predicted[1] == y_trunc[0], f"{predicted[0:5]} {y_trunc[0:5]}"
-
-            n_matched_torch = int(torch.sum(predicted[-cmd_len:] == y_trunc[-cmd_len:]))  # torch 1.7 has torch.count_nonzero()
-            n_cmd_tokens = int(cmd_len)
-            # y_predicted = predicted.cpu().tolist()
-            # y_ids = y_trunc.detach().cpu().tolist()
-            # assert len(y_predicted) == len(y_ids) + 1, f"{len(y_ids)} {len(y_predicted)}"
-            # assert y_predicted[1] == y_ids[0], f"{y_predicted[0:5]} {y_ids[0:5]}"
-
-            # n_cmd_tokens = 0
-            # n_matched = 0
-            # if cmd_len > 1:
-            #     for i in range(1, cmd_len + 1):
-            #         n_cmd_tokens += 1
-            #         if y_predicted[-i] == y_ids[-i]:
-            #             n_matched += 1
-            # assert n_matched == n_matched_torch, f"{n_matched} {n_matched_torch}"
-            # assert n_cmd_tokens == cmd_len
-
-            if n_matched_torch == n_cmd_tokens:
-                full_matches += 1
-            else:  # n_matched_torch != n_cmd_tokens:
-                n_printed += 1
-                n_matched = n_matched_torch
-                if n_printed < 10 or n_printed % 100 == 0 or igame > dataset.num_games - 3:
-                    if rank == 0:
-                        print(f" {igame}.{istep}  ...   \t{n_matched} / {n_cmd_tokens}   \tacc: {n_matched / n_cmd_tokens:4f}")
-                        if tokenizer:
-                            y_predicted = predicted.cpu().tolist()
-                            y_ids = y_trunc.detach().cpu().tolist()
-                            show_sample(tokenizer, f"{igame}.{istep}", y_predicted, y_ids, n_sampled=n_cmd_tokens)
-
-            total_cmd_tokens += n_cmd_tokens
-            total_matched += n_matched_torch
-    return total_matched, total_cmd_tokens, full_matches, total_cmds
-
-
 def debug_print_some_spans(dataset):
     print("eval dataset # cmd_spans =", len(dataset.cmd_spans))
     for i in range(5):
@@ -431,15 +349,15 @@ def debug_print_some_spans(dataset):
     # print()
 
 
-def show_sample(tokenizer, idx, y_predicted, y_ids, n_sampled=5):
-    # print(f"!{idx}!", tokenizer.decode(y_ids))
-    print(f"({idx})", tokenizer.decode(y_ids[0:6]), '[....]',
-          tokenizer.decode(y_ids[-5-n_sampled:-n_sampled]), "|",
-          tokenizer.decode(y_ids[-n_sampled:]))
-
-    print(f"<{idx}>", tokenizer.decode(y_predicted[1:7]), '[....]',
-          tokenizer.decode(y_predicted[-5-n_sampled:]))
-    print()
+# def show_sample(tokenizer, idx, y_predicted, y_ids, n_sampled=5):
+    # # print(f"!{idx}!", tokenizer.decode(y_ids))
+    # print(f"({idx})", tokenizer.decode(y_ids[0:6]), '[....]',
+    #       tokenizer.decode(y_ids[-5-n_sampled:-n_sampled]), "|",
+    #       tokenizer.decode(y_ids[-n_sampled:]))
+    #
+    # print(f"<{idx}>", tokenizer.decode(y_predicted[1:7]), '[....]',
+    #       tokenizer.decode(y_predicted[-5-n_sampled:]))
+    # print()
 
 
 if __name__ == '__main__':

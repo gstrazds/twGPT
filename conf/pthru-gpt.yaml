@@ -7,8 +7,8 @@ defaults:
 train_ftwc: True
 resume_from_checkpoint: null  #/home/guntis/work/0_magd3/tw13/minGPT/saved_models/dec18-startofepoch2.ckpt
 
-gpus:  1 # set to a single int n to auto-select n gpus from all available, or to a list of gpu indices e.g. [0,1,2,3]
-#  - 0  # yaml format for a list
+gpus:  # 1 # set to a single int n to auto-select n gpus from all available, or to a list of gpu indices e.g. [0,1,2,3]
+  - 0  # yaml format for a list
 #  - 1
 #  - 2
 #  - 3
@@ -28,8 +28,7 @@ data:
   test_file: ${cwd_path}/mingpt-test-all.pthru
   tokenizer_file: ${cwd_path}/ftwc_tokenizer.json
   num_workers: 8
-  training:
-    num_tokens: len(dataset)
+#  num_training_tokens: len(dataset)
   train_filtering: cmd_tokens
   eval_filtering: cmd_tokens
 
@@ -59,7 +58,7 @@ trainer:
   weight_decay: 0.1 # only applied on matmul weights
   warmup_tokens: 10240  #512*20
   # update final_tokens after loading training data
-  final_tokens: 2*${data.training.num_tokens}*${gpt.block_size}
+  decay_tokens: 2*${len(dataset)}*${gpt.block_size}
   num_workers: 4
 
 eval:
