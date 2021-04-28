@@ -32,13 +32,15 @@ from pytorch_lightning.callbacks import ModelCheckpoint
 from pytorch_lightning.callbacks import Callback, EarlyStopping
 
 from labml.helpers.module import Module
-from labml.nn.transformers.gpt import _init_weights
+
+from labml.nn.transformers.feedback import feedback_transformer_kv
+from labml.nn.transformers.feed_forward import FeedForward
 
 from mingpt.pthru_dataset import PlaythroughDataModule
 from mingpt.char_dataset import CharDataModule
 from mingpt.callback import CUDACallback
 from mingpt.lr_decay import LearningRateDecayCallback
-# from mingpt.utils import sample
+
 
 logger = logging.getLogger(__name__)
 
@@ -75,7 +77,6 @@ def sample(model, block_size, x, steps, temperature=1.0, sample=False, top_k=Non
     return x
 
 
-
 class SamplePredictions(Callback):
     def __init__(self, tokenizer, dataset, how_many=3, out_dir=None, **kwargs):
         super().__init__(**kwargs)
@@ -110,47 +111,8 @@ def show_sample(tokenizer, idx, y_predicted, y_ids, n_sampled=5):
     print()
 
 
-def build_GPT(cfg):
-    # when Hydra config (v1.1) supports recursive instantiation, this could be replaced by instantiate-from-config
-    # https://github.com/facebookresearch/hydra/issues/566
-
-    from labml.nn.transformers.gpt import GPT
-    from labml.nn.transformers.models import Encoder, TransformerLayer, \
-        EmbeddingsWithPositionalEncoding, Generator
-    from labml.nn.transformers.mha import MultiHeadAttention
-    from labml.nn.transformers.feed_forward import FeedForward
-
-    n_heads = cfg.transformer.n_heads
-    d_model = cfg.transformer.d_model
-    n_layers = cfg.transformer.n_layers
-    dropout_prob = cfg.transformer.dropout
-    n_vocab = cfg.transformer.n_vocab
-
-    self_attn = MultiHeadAttention(n_heads, d_model, dropout_prob=dropout_prob) #, bias: bool = True)
-
-    feedforward = FeedForward(d_model,
-                              d_ff=4*d_model,   #cfg.transformer.d_ff,
-                              dropout=dropout_prob,
-                              activation=nn.GELU())
-
-    encoder_layer = TransformerLayer(
-                        d_model=d_model,
-                        self_attn=self_attn,
-                        src_attn=None,
-                        feed_forward=feedforward,
-                        dropout_prob=dropout_prob)
-
-    encoder = Encoder(encoder_layer, n_layers=n_layers)
-    src_embed = EmbeddingsWithPositionalEncoding(d_model=d_model, n_vocab=n_vocab) #, max_len=5000)
-    generator = Generator(n_vocab=n_vocab, d_model=d_model)
-    model = GPT(encoder, src_embed, generator)
-                     # c.transformer.src_embed,
-                     # c.transformer.generator,)
-
-    return model
-
-class GPTLitModule(pl.LightningModule):
-    """  GPT """
+class FTLitModule(pl.LightningModule):
+    """  Feedback Transformer """
     # def __init__(self,
     #              vocab_size,
     #              n_embd=768,
@@ -176,24 +138,18 @@ class GPTLitModule(pl.LightningModule):
         assert config.transformer.d_model % config.transformer.n_heads == 0,\
             f"embedding dim ({config.transformer.d_model}) should be a multiple of num heads ({config.transformer.n_heads})"
 
-        # self.model = GPT(
-        #                 Encoder(EncoderLayer(), n_layers=config.transformer.n_layers),
-        #                 c.transformer.src_embed,
-        #                 c.transformer.generator,)
-        self.model = build_GPT(config)
-                        # d_model = config.transformer.d_model,
-                        # n_heads = config.transformer.n_heads,
-                        # n_layers = config.transformer.n_layers,
-                        # dropout = config.transformer.dropout,
-                        # d_ff = config.transformer.d_ff,
-                        # n_vocab = config.transformer.n_vocab,
+        self.model = feedback_transformer_kv(
+                        d_model=config.transformer.d_model,
+                        n_heads=config.transformer.n_heads,
+                        n_layers=config.transformer.n_layers,
+                        dropout=config.transformer.dropout,
+                        d_ff=4*config.transformer.d_model,  #config.transformer.d_ff,
+                        n_vocab=config.transformer.n_vocab,
+                )
+        #self._memory = None
         self.criterion = torch.nn.CrossEntropyLoss()
         self.tokens = 0
-        if self.model:
-            self.model.apply(_init_weights)
-            logger.info("number of parameters: %e", sum(p.numel() for p in self.model.parameters()))
-        else:
-            logger.warn(f"FAILED: build_GPT() model={self.model}")
+        logger.info("number of parameters: %e", sum(p.numel() for p in self.model.parameters()))
 
     def configure_optimizers(self):
         """
@@ -223,29 +179,11 @@ class GPTLitModule(pl.LightningModule):
                     # weights of blacklist modules will NOT be weight decayed
                     no_decay.add(fpn)
 
-        # special case the position embedding parameter in the root GPT module as not decayed
+        # # special case the position embedding parameter in the root GPT module as not decayed
         # no_decay.add('pos_emb')
 
-        # # special case the layer weights for feedback transformer memory attn (TODO: ?not sure if should or should not weight decay)
-        # no_decay.add('layer_weight')
-
-        #### FOR COMPARISON: corresponding code from labml.nn.transformers.gpt
-        #     This applies weight decay only to weights of linear layers.
-        #     """
-        #     # Collect names of parameters to apply weight decay
-        #     decay = set()
-        #     for mn, m in c.model.named_modules():
-        #         for pn, p in m.named_parameters():
-        #             fpn = f'{mn}.{pn}' if mn else pn  # full param name
-        #
-        #             if fpn.endswith('weight') and isinstance(m, nn.Linear):
-        #                 decay.add(fpn)
-        #
-        #     # Get all the parameters
-        #     param_dict = {pn: p for pn, p in c.model.named_parameters()}
-        #     # Parameters that are not decayed
-        #     no_decay = set(param_dict.keys()) - decay
-        #####################################################################
+        # special case the layer weights for memory attn (TODO: ?not sure if should or should not weight decay)
+        no_decay.add('layer_weight')
 
         # validate that we considered every parameter
         param_dict = {pn: p for pn, p in module.named_parameters()}
@@ -280,11 +218,22 @@ class GPTLitModule(pl.LightningModule):
             assert len(batch) == 2, "Expecting each training batch to be a tuple of x,y,(padding) "+int(len(batch))
             x, y = batch
 
+        # clf_logits = self.model(x, classify=True)
+        # loss = self.criterion(clf_logits, y)
+        # loss = self.criterion(logits.view(-1, logits.size(-1)), x.view(-1).long())
+
         x = x.T.contiguous()
         y = y.T.contiguous()
-        logits, _ = self.model(x)
+        # logits, memory = self.model(x,
+        #                             memory=None, #self._memory,
+        #                             return_memory=True)
+        logits = self.model(x)
         #print(f"training_step x.size={x.size()} logits.size={logits.size()}")
         loss = F.cross_entropy(logits.view(-1, logits.size(-1)), y.view(-1))
+
+        # _keys = memory.keys.detach()
+        # _vals = memory.values.detach()
+        # self.memory = Memory(_keys, _vals)
 
         self.log('train_loss', loss, on_step=True, on_epoch=True, prog_bar=True)
         return {"loss": loss}
@@ -298,9 +247,11 @@ class GPTLitModule(pl.LightningModule):
 
         x = x.T.contiguous()
         y = y.T.contiguous()
-        logits, _ = self.model(x)
-        #print(f"validation_step x.size={x.size()} y.size={y.size()} logits.size={logits.size()}")
+        logits = self.model(x)  #, memory=None)  #self._memory)
         loss = F.cross_entropy(logits.view(-1, logits.size(-1)), y.view(-1))
+
+        # # 1. calculate loss
+        # loss = F.cross_entropy(y_hat, y)
 
         # 2. log `val_loss`
         self.log('val_loss', loss, on_step=True, on_epoch=True, prog_bar=True)
@@ -310,6 +261,7 @@ class GPTLitModule(pl.LightningModule):
     def validation_epoch_end(self, outs):
         avg_loss = torch.stack([x["val_loss"] for x in outs]).mean()
         self.log("val_loss", avg_loss, on_epoch=True, prog_bar=True)
+
         # return {"val_loss": avg_loss, "log": logs}
 
     def test_step(self, batch, batch_idx):
@@ -331,19 +283,17 @@ class GPTLitModule(pl.LightningModule):
 
     def sample_ahead(self, x, n_samples, temperature=1.0, randsampling=False, top_k=None):
         x_in = torch.unsqueeze(x, 0)  #torch.unsqueeze(x,0) ##== x[None, ...]
-        block_size = self.hparams.transformer.seq_len
-        preds = sample(self.model, block_size, x_in, steps=n_samples, temperature=temperature, sample=randsampling, top_k=top_k)
-        # self.memory = memory
+        preds = sample(self.model, self.hparams.transformer.seq_len, x_in, steps=n_samples, temperature=temperature, sample=randsampling, top_k=top_k)
         # print(f"sample_ahead: x_in.size={x_in.size()} preds.size={preds.size()}")
         return preds.detach().squeeze()
         # return preds.detach()[0]
 
     def reset_episode(self):
         #print("****** RESET EPISODE ****")
-        pass
+        self.model.free()
 
 
-def eval_predict_cmd_tokens(trainer, pl_module: GPTLitModule, dataset, tokenizer=None):
+def eval_predict_cmd_tokens(trainer, pl_module: FTLitModule, dataset, tokenizer=None):
     total_cmd_tokens = 0
     total_matched = 0
     full_matches = 0
@@ -354,13 +304,8 @@ def eval_predict_cmd_tokens(trainer, pl_module: GPTLitModule, dataset, tokenizer
         if hasattr(trainer, "rank"):
             rank = trainer.rank
 
-    max_eval_games = 1000000  # infinity for all practical purposes
     max_eval_games = pl_module.hparams.trainer.limit_val_batches
 
-    # for idx in range(1, len(dataset.cmd_spans)):   # skip the initial 'start' command
-    #     x, y, cmd_start_pos = dataset.get_cmd_prompt(idx, continuation=-1)
-    #     if idx % 200 == 0 and total_matched == total_cmd_tokens:
-    #         print(idx, "...")  # let them know we're actually doing something...
     for igame in range(min(dataset.num_games, max_eval_games)):
         if igame % 10 == 0:
             if rank == 0:
@@ -439,7 +384,7 @@ def eval_predict_cmd_tokens(trainer, pl_module: GPTLitModule, dataset, tokenizer
     return total_matched, total_cmd_tokens, full_matches, total_cmds
 
 
-@hydra.main(config_path="conf", config_name="labml-gpt")
+@hydra.main(config_path="conf", config_name="labml-fbt")
 def main(cfg: DictConfig) -> None:
     cfg.cwd_path = hydra.utils.to_absolute_path(cfg.cwd_path)
 
@@ -448,11 +393,30 @@ def main(cfg: DictConfig) -> None:
     seed_everything(cfg.general.random_seed)
 
     start_time = datetime.datetime.now()
-    print(f"======================================= train_lmlgpt.py - Start time: {start_time}\n{os.getcwd()}\n")
+    print(f"======================================= train_fbt.py - Start time: {start_time}\n{os.getcwd()}\n")
 
+    conf_json =\
+                {'tokenizer': 'character',
+                'text': 'tiny_shakespeare',
+                'optimizer.learning_rate': 1.0,
+                'optimizer.optimizer': 'Noam',
+                'prompt': 'It is',
+                'prompt_separator': '',
+
+                # Use `feedback_transformer` for original feedback transformer
+                'model': 'feedback_transformer_kv',
+
+                'train_loader': 'shuffled_train_loader',
+                'valid_loader': 'shuffled_valid_loader',
+
+                'seq_len': 128,
+                'epochs': 128,
+                'batch_size': 64,
+                'inner_iterations': 25}
+#  )
 
     if cfg.train_ftwc:
-        model_data_id = 'lmlgpt'
+        model_data_id = 'lmlfbt'
         _datamodule = PlaythroughDataModule(
             data_file=cfg.data.data_file,
             val_file=cfg.data.val_file,
@@ -464,7 +428,7 @@ def main(cfg: DictConfig) -> None:
             train_filtering=cfg.data.train_filtering,
             eval_filtering=cfg.data.eval_filtering, )
     else:
-        model_data_id = 'lmlchar'
+        model_data_id = 'lmlfbt-char'
         _datamodule = CharDataModule(
             data_file=cfg.data.data_file,
             val_file=cfg.data.val_file,
@@ -482,7 +446,7 @@ def main(cfg: DictConfig) -> None:
     print(OmegaConf.to_yaml(cfg, resolve=True))
     # print(f"Vocabulary size={cfg.fbt.n_vocab}")
 
-    pl_model = GPTLitModule(cfg)
+    pl_model = FTLitModule(cfg)
 
     print("USING PyTorch Lightning Trainer")
     _datamodule.train_dataset.print_info("train_dataset")
@@ -504,7 +468,7 @@ def main(cfg: DictConfig) -> None:
 
     callback_list = [checkpoint_callback, lr_decay, CUDACallback()]
     if cfg.trainer.patience > 0:
-        early_stopping = EarlyStopping('train_loss_step', mode='min', patience=cfg.trainer.patience)
+        early_stopping = EarlyStopping('val_loss', mode='min', patience=cfg.trainer.patience)
         callback_list.append(early_stopping)
     #early_stopping = EarlyStopping('val_acc', mode='max', patience=5)
 
@@ -522,7 +486,7 @@ def main(cfg: DictConfig) -> None:
     trainer.fit(pl_model, _datamodule)
 
     finish_time = datetime.datetime.now()
-    print(f"================ train_lmlgpt.py - Finished : {finish_time} -- elapsed: {finish_time-start_time}")
+    print(f"================ train_fbt.py - Finished : {finish_time} -- elapsed: {finish_time-start_time}")
 
 
 
