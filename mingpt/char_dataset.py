@@ -70,6 +70,9 @@ class CharDataset(Dataset):
         y = torch.tensor(dix[1:], dtype=torch.long)
         return x, y
 
+    def print_info(self, name="CharDataset"):
+        print(f"{name} datalen={len(self.data)} len={len(self)} vocab_size={self.vocab_size}")
+
 
 
 from pytorch_lightning import LightningDataModule

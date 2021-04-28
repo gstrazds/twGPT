@@ -252,7 +252,7 @@ def main(cfg: DictConfig) -> None:
     print("USING PyTorch Lightning")
 
     pl_model = GPTLitModule.load_from_checkpoint(checkpoint_path=cfg.eval.checkpoint)
-    if torch.cuda.is_available() and cfg.general.use_cuda:
+    if torch.cuda.is_available() and cfg.gpus is not None:
         # print(cfg.gpus, type(cfg.gpus))
         if isinstance(cfg.gpus, omegaconf.listconfig.ListConfig):
             print("USING CUDA device=",cfg.gpus[0])

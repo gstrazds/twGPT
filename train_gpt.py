@@ -45,8 +45,8 @@ def main(cfg: DictConfig) -> None:
     else:
         model_data_id = 'char'
         _datamodule = CharDataModule(
-            data_file=f'{cfg.cwd_path}/input.txt',
-            val_file=f'{cfg.cwd_path}/input.txt',
+            data_file=cfg.data.data_file,
+            val_file=cfg.data.val_file,
             # tokenizer_file=cfg.data.tokenizer_file,
             num_workers=cfg.data.num_workers,
             seed=cfg.general.random_seed,

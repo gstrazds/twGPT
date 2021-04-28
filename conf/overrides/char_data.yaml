@@ -1,0 +1,21 @@
+# @package _global_
+train_ftwc: False
+
+data:
+  data_file: ${cwd_path}/input.txt
+  val_file: ${cwd_path}/input.txt
+  test_file: null
+  tokenizer_file: null
+  num_workers: 4
+
+gpt:
+  n_layer: 6
+#  n_head: 8
+#  n_embd: 512
+#  block_size: 128  # context window
+
+trainer:
+  patience: 5
+  save_top_k: 5
+  val_check_interval: 0.1
+  limit_val_batches: 200

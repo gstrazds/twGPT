@@ -1,8 +1,10 @@
 # @package _global_
 # @package _global_
+
 defaults:
-#  - xx: null    #xx=xx_config has default values for running with tw_agent
   - overrides: null   # can add arbitrary config files in conf/overrides/ to override values listed here
+
+cwd_path: "."   # gets expanded to an absolute path to the original current directory (not the Hydra/runtime working dir)
 
 train_ftwc: True
 resume_from_checkpoint: null  #/home/guntis/work/0_magd3/tw13/minGPT/saved_models/dec18-startofepoch2.ckpt
@@ -12,23 +14,17 @@ gpus:  # 1 # set to a single int n to auto-select n gpus from all available, or 
 #  - 1
 #  - 2
 #  - 3
-cwd_path: "."   # gets expanded to an absolute path to the original current directory (not the Hydra/runtime working dir)
-use_lightning: True
 
 general:
-  use_cuda: True  # disable this when running on machine without cuda
-  cuda_idx: 0     # set to None to run without using CUDA
   random_seed: 42
 
 data:
-  data_file: ${cwd_path}/gata-train-all.pthru  #mingpt-training-all.pthru
   # data_file: ${cwd_path}/tw-cooking-recipe3+take3+cut+go6-Z7L8CvEPsO53iKDg.pthru  #
+  data_file: ${cwd_path}/mingpt-training-all.pthru   #gata-train-all.pthru  #
   val_file: ${cwd_path}/mingpt-valid-all.pthru
-  # val_file: ${cwd_path}/mingpt-training-all.pthru
   test_file: ${cwd_path}/mingpt-test-all.pthru
   tokenizer_file: ${cwd_path}/ftwc_tokenizer.json
   num_workers: 8
-#  num_training_tokens: len(dataset)
   train_filtering: cmd_tokens
   eval_filtering: cmd_tokens
 
@@ -46,36 +42,25 @@ trainer:
   batch_size: 192
   max_epochs: 6
   learning_rate: 6e-4
+  val_check_interval: 0.2
   patience: 25
   save_top_k: 25
-  val_check_interval: 0.2
   limit_val_batches: 10000  # this should cover all of our current validation set (but maybe not the test set?)
-  lr_decay: true
   betas:
     - 0.9
     - 0.95
   grad_norm_clip: 1.0
+  lr_decay: true
   weight_decay: 0.1 # only applied on matmul weights
   warmup_tokens: 10240  #512*20
-  # update final_tokens after loading training data
-  decay_tokens: 2*${len(dataset)}*${gpt.block_size}
-  num_workers: 4
+  decay_tokens: 2*${len(dataset)}*${gpt.block_size}  # set by caller after loading training data
 
 eval:
-  checkpoint: ${cwd_path}/saved_models/instrgpt-epoch=4-step=1314-train_loss_step=0.125-val_loss=0.231.ckpt
+#  checkpoint: ${cwd_path}/saved_models/instrgpt-epoch=4-step=1314-train_loss_step=0.125-val_loss=0.231.ckpt
+  checkpoint: ${cwd_path}/saved_models/12-31/mingpt-epoch=1-step=1469-train_loss_step=0.197-val_loss=0.662.ckpt  # 84.2 % (win 27/124)
   #instrgpt-epoch=4-step=3380-train_loss_step=0.155-val_loss=0.920.ckpt # 88.29%
-  # 12-31/mingpt-epoch=1-step=1469-train_loss_step=0.197-val_loss=0.662.ckpt  # 84.2 % (win 27/124)
   # mingpt-epoch=02-step=01616-val_loss=0.66.ckpt  # 83.6 % (win 29/124)
   # mingpt-epoch=2-step=1616-train_loss_step=0.199-val_loss=0.662.ckpt  # 83.6
-  # mingpt-epoch=00-step=02141-val_loss=0.19.ckpt  # 1
-  # mingpt-epoch=00-step=04283-val_loss=0.16.ckpt  # 2
-  # mingpt-epoch=00-step=06425-val_loss=0.11.ckpt  # 3
-  # mingpt-epoch=00-step=08567-val_loss=0.11.ckpt  # 4
-  # mingpt-epoch=00-step=10709-val_loss=0.10.ckpt  # 5
-  # mingpt-epoch=01-step=12854-val_loss=0.09.ckpt  # 6
-  # mingpt-epoch=01-step=14996-val_loss=0.09.ckpt  # 7
-  # mingpt-epoch=01-step=17138-val_loss=0.09.ckpt  # 8
-  # mingpt-epoch=01-step=17257-val_loss=0.09.ckpt  # 9
   play_games: False
   which_set: valid
   root_dir: /ssd2tb/gata  # /ssd2tb/ftwc

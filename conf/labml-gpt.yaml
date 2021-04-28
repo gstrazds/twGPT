@@ -1,0 +1,56 @@
+# @package _global_
+
+train_ftwc: True
+resume_from_checkpoint: null  #/home/guntis/work/0_magd3/tw13/minGPT/saved_models/dec18-startofepoch2.ckpt
+
+gpus:   # set to a single int n to auto-select n gpus from all available, or to a list of gpu indices e.g. [0,1,2,3]
+  - 0   # this is a list: [0,]
+#  - 1
+cwd_path: "."   # gets expanded to an absolute path to the original current directory (not the Hydra/runtime working dir)
+
+general:
+  random_seed: 42
+
+data:
+  data_file: ${cwd_path}/mingpt-training-all.pthru
+#  data_file: ${cwd_path}/tw-cooking-recipe3+take3+cut+go6-Z7L8CvEPsO53iKDg.pthru  #
+  val_file: ${cwd_path}/mingpt-valid-all.pthru
+  test_file:  ${cwd_path}/mingpt-test-all.pthru
+  tokenizer_file: ${cwd_path}/ftwc_tokenizer.json
+#  data_file: ${cwd_path}/input.txt
+#  val_file: ${cwd_path}/input.txt
+#  test_file: null
+#  tokenizer_file: null
+  num_workers: 4
+  train_filtering: cmd_tokens
+  eval_filtering: cmd_tokens
+
+transformer:    # Feedback Transformer
+  d_model: 512    # n_embd
+  n_heads: 8
+  n_layers: 8
+  dropout: 0.1    # embd_pdrop, resid_pdrop, attn_pdrop
+  # d_ff: 2048    # 4*${transformer.d_model}   # 2048 = 4 * d_model -- FF layer of transformer encoder block
+  seq_len: 128    # aka block_size or 'attention window size'
+  n_vocab:  20000 # number of unique token ids -- set/updated after we load the vocabulary
+
+trainer:
+  max_epochs: 5
+  batch_size: 192
+  learning_rate: 6e-4
+  val_check_interval: 0.1
+  patience: 8
+  save_top_k: 20
+  limit_val_batches: 200  # 10000 should cover all of our current validation set (but maybe not the test set?)
+  betas:
+    - 0.9
+    - 0.95
+  grad_norm_clip: 1.0
+  lr_decay: true
+  weight_decay: 0.1 # only applied on matmul weights
+  warmup_tokens: 10240  #512*20
+  decay_tokens: 2*${data.training.num_tokens}*${gpt.block_size} # caller updates decay_tokens after loading training data
+
+eval:
+  checkpoint: ${cwd_path}/saved_models/dec18-startofepoch2.ckpt
+
