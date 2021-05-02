@@ -4,15 +4,18 @@ import pytorch_lightning as pl
 
 class LearningRateDecayCallback(pl.Callback):
 
-    def __init__(self, learning_rate, warmup_tokens=375e6, decay_tokens=260e9, lr_decay=True):
+    def __init__(self, learning_rate, warmup_tokens=375e6, decay_tokens=260e9, lr_decay=True, pad_value=-1):
         super().__init__()
         self.learning_rate = learning_rate
         self.tokens = 0
         self.lr_decay = lr_decay
+        self.pad_value = pad_value
         self.warmup_tokens = warmup_tokens
         self.decay_tokens = decay_tokens
 
     def on_train_batch_end(self, trainer, pl_module, outputs, batch, batch_idx, dataloader_idx):
+        # NOTE: uses y > pad_value to count tokens processed (assumes pad values are less than any actual token)
+
         optimizer = trainer.optimizers[0]
         # _, y = batch
         if len(batch) == 3:
@@ -22,7 +25,7 @@ class LearningRateDecayCallback(pl.Callback):
             _, y = batch
 
         if self.lr_decay:   # if False, this callback does nothing
-            self.tokens += (y >= 0).sum()  # number of tokens processed this step (i.e. label is not -100)
+            self.tokens += (y > self.pad_value).sum()  # number of tokens processed this step (i.e. label is not -100)
             if self.tokens < self.warmup_tokens:
                 # linear warmup
                 lr_mult = float(self.tokens) / float(max(1, self.warmup_tokens))

@@ -10,10 +10,16 @@ def set_seed(seed):
     torch.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
 
-def top_k_logits(logits, k):
+def top_k_logits(logits, k):  # over last dimension of logits (by default)
+    # logits.shape == (batch_size,vocab_size)  #(b,v)
     v, ix = torch.topk(logits, k)
-    out = logits.clone()
-    out[out < v[:, [-1]]] = -float('Inf')
+    # v is a tensor like logits, but reduced to size k along last dimension -- v.shape=(b,k)
+    # ix is vector of indices into logits, corresponding to the values in v
+    #   (such that for each i in 0..k-1, logits[...,ix[i]] == v[...,i])
+    out = logits.clone()  # avoid trashing the original tensor
+    # v[:,[-1]] is a tensor w/shape=(b,1) -- let's call it min_of_topk
+    #   whose elements are the min of the k largest values for each batch entry
+    out[out < v[:, [-1]]] = -float('Inf')  # replace logits smaller than the min_of_topk value
     return out
 
 @torch.no_grad()
@@ -32,7 +38,7 @@ def sample(model, block_size, x, steps, temperature=1.0, sample=False, top_k=Non
         # pluck the logits at the final step and scale by temperature
         logits = logits[:, -1, :] / temperature
         # print(f"sample: logits.size = {logits.size()}")
-        # optionally crop probabilities to only the top k options
+        # optionally crop logits to only the top k options
         if top_k is not None:
             logits = top_k_logits(logits, top_k)
         # apply softmax to convert to probabilities

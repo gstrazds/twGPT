@@ -52,28 +52,30 @@ def sample(model, block_size, x, steps, temperature=1.0, sample=False, top_k=Non
     of block_size, unlike an RNN that has an infinite context window.
     """
     # block_size = model.get_block_size()
+    # x.shape == (b,t_orig) [values are indices into vocab]
     model.eval()
     for k in range(steps):
         x_cond = x if x.size(1) <= block_size else x[:, -block_size:] # crop context if needed
-        logits, _ = model(x_cond.T.contiguous())
+        x_cond = x_cond.T.contiguous()  # shape (t,b) [values are indices into vocab]
+
+        logits, _ = model(x_cond)   # logits.shape = (t,b,v)
         # pluck the logits at the final step and scale by temperature
-        logits = logits[-1, :, :] / temperature
-        # print(f"sample: logits.shape = {logits.shape}")
+        logits = logits[-1, :, :] / temperature  # shape = (b,v)
         # optionally crop probabilities to only the top k options
         if top_k is not None:
             logits = top_k_logits(logits, top_k)
         # apply softmax to convert to probabilities
-        probs = F.softmax(logits, dim=-1)
+        probs = F.softmax(logits, dim=-1)  # (b,v)
         # sample from the distribution or take the most likely
         if sample:
             ix = torch.multinomial(probs, num_samples=1)
         else:
-            _, ix = torch.topk(probs, k=1, dim=-1)  #dim=-1
+            _, ix = torch.topk(probs, k=1, dim=-1)  #greedily choose the single largest
+        # ix is a tensor shape=(b,1) of indices into the v (2nd) dimension of probs tensor
         # append to the sequence and continue
-        x = torch.cat((x, ix), dim=-1)  #dim=-1
+        x = torch.cat((x, ix), dim=-1)  #
 
-    return x
-
+    return x  # NOTE: returned tensor has shape (b,t_orig+steps)
 
 
 class SamplePredictions(Callback):
@@ -116,7 +118,7 @@ def build_GPT(cfg):
 
     from labml.nn.transformers.gpt import GPT
     from labml.nn.transformers.models import Encoder, TransformerLayer, \
-        EmbeddingsWithPositionalEncoding, Generator
+        EmbeddingsWithPositionalEncoding, EmbeddingsWithLearnedPositionalEncoding, Generator
     from labml.nn.transformers.mha import MultiHeadAttention
     from labml.nn.transformers.feed_forward import FeedForward
 
@@ -141,12 +143,13 @@ def build_GPT(cfg):
                         dropout_prob=dropout_prob)
 
     encoder = Encoder(encoder_layer, n_layers=n_layers)
-    src_embed = EmbeddingsWithPositionalEncoding(d_model=d_model, n_vocab=n_vocab) #, max_len=5000)
+    src_embed = EmbeddingsWithLearnedPositionalEncoding(d_model=d_model, n_vocab=n_vocab) #, max_len=5000)
     generator = Generator(n_vocab=n_vocab, d_model=d_model)
     model = GPT(encoder, src_embed, generator)
                      # c.transformer.src_embed,
                      # c.transformer.generator,)
 
+    # model.init_weights()
     return model
 
 class GPTLitModule(pl.LightningModule):
@@ -190,10 +193,9 @@ class GPTLitModule(pl.LightningModule):
         self.criterion = torch.nn.CrossEntropyLoss()
         self.tokens = 0
         if self.model:
-            self.model.apply(_init_weights)
             logger.info("number of parameters: %e", sum(p.numel() for p in self.model.parameters()))
         else:
-            logger.warn(f"FAILED: build_GPT() model={self.model}")
+            logger.warning(f"FAILED: build_GPT() model={self.model}")
 
     def configure_optimizers(self):
         """
@@ -223,8 +225,8 @@ class GPTLitModule(pl.LightningModule):
                     # weights of blacklist modules will NOT be weight decayed
                     no_decay.add(fpn)
 
-        # special case the position embedding parameter in the root GPT module as not decayed
-        # no_decay.add('pos_emb')
+        # special case the position embedding parameter in the EmbeddingsWithPositionalEncoding module as not decayed
+        no_decay.add('src_embed.positional_encodings')
 
         # # special case the layer weights for feedback transformer memory attn (TODO: ?not sure if should or should not weight decay)
         # no_decay.add('layer_weight')
@@ -249,6 +251,8 @@ class GPTLitModule(pl.LightningModule):
 
         # validate that we considered every parameter
         param_dict = {pn: p for pn, p in module.named_parameters()}
+        for k in param_dict.keys():
+            print(k)
         inter_params = decay & no_decay
         union_params = decay | no_decay
         assert len(inter_params) == 0, "parameters %s made it into both decay/no_decay sets!" % (str(inter_params), )
@@ -299,10 +303,8 @@ class GPTLitModule(pl.LightningModule):
         x = x.T.contiguous()
         y = y.T.contiguous()
         logits, _ = self.model(x)
-        #print(f"validation_step x.size={x.size()} y.size={y.size()} logits.size={logits.size()}")
         loss = F.cross_entropy(logits.view(-1, logits.size(-1)), y.view(-1))
 
-        # 2. log `val_loss`
         self.log('val_loss', loss, on_step=True, on_epoch=True, prog_bar=True)
         metrics = {'val_loss': loss} #, 'val_acc': acc}
         return metrics
@@ -330,12 +332,14 @@ class GPTLitModule(pl.LightningModule):
     #     return result
 
     def sample_ahead(self, x, n_samples, temperature=1.0, randsampling=False, top_k=None):
+        assert len(x.shape) == 1  # expecting a vector of len t
         x_in = torch.unsqueeze(x, 0)  #torch.unsqueeze(x,0) ##== x[None, ...]
+        assert x_in.shape[0] == 1  # (b=1, t)
         block_size = self.hparams.transformer.seq_len
         preds = sample(self.model, block_size, x_in, steps=n_samples, temperature=temperature, sample=randsampling, top_k=top_k)
         # self.memory = memory
         # print(f"sample_ahead: x_in.size={x_in.size()} preds.size={preds.size()}")
-        return preds.detach().squeeze()
+        return preds.detach().squeeze()  # reduce from (b=1,t) to a single dimension (a vector)
         # return preds.detach()[0]
 
     def reset_episode(self):
@@ -354,13 +358,8 @@ def eval_predict_cmd_tokens(trainer, pl_module: GPTLitModule, dataset, tokenizer
         if hasattr(trainer, "rank"):
             rank = trainer.rank
 
-    max_eval_games = 1000000  # infinity for all practical purposes
     max_eval_games = pl_module.hparams.trainer.limit_val_batches
 
-    # for idx in range(1, len(dataset.cmd_spans)):   # skip the initial 'start' command
-    #     x, y, cmd_start_pos = dataset.get_cmd_prompt(idx, continuation=-1)
-    #     if idx % 200 == 0 and total_matched == total_cmd_tokens:
-    #         print(idx, "...")  # let them know we're actually doing something...
     for igame in range(min(dataset.num_games, max_eval_games)):
         if igame % 10 == 0:
             if rank == 0:
@@ -379,11 +378,6 @@ def eval_predict_cmd_tokens(trainer, pl_module: GPTLitModule, dataset, tokenizer
             cmd_len = len(x) - int(cmd_start_pos) - 1
             x_trunc = x[0:int(cmd_start_pos) + 1]
             y_trunc = y[0:int(cmd_start_pos) + cmd_len]
-            # print(f"len(x)={len(x)}, cmd_start_pos={cmd_start_pos}" )
-            # print("cmd_len", cmd_len)
-            # print("x:", x)
-            # print("x_trunc:", x_trunc)
-            # print(f"len(x_trunc) = {len(x_trunc)}")
             assert x_trunc[int(
                 cmd_start_pos)] == dataset.cmd_start, f"{cmd_start_pos}: {x_trunc[int(cmd_start_pos)]} {x_trunc}"
             predicted = pl_module.sample_ahead(x_trunc, n_samples=cmd_len, temperature=1.0, randsampling=False,
@@ -500,6 +494,7 @@ def main(cfg: DictConfig) -> None:
         learning_rate=cfg.trainer.learning_rate,
         warmup_tokens=cfg.trainer.warmup_tokens,
         decay_tokens=cfg.trainer.decay_tokens, # = 2 * len(train_dataset) * cfg.gpt.block_size
+        #pad_value=tokenizer.PAD_id
     )
 
     callback_list = [checkpoint_callback, lr_decay, CUDACallback()]

@@ -178,12 +178,12 @@ class FTLitModule(pl.LightningModule):
                 elif pn.endswith('weight') and isinstance(m, blacklist_weight_modules):
                     # weights of blacklist modules will NOT be weight decayed
                     no_decay.add(fpn)
+                elif pn.endswith('key_pos_embeddings'): # and isinstance(m, blacklist_weight_modules):
+                    # special case key_pos_embeddings (GVS TODO: not sure if should decay or not)
+                    no_decay.add(fpn)
 
-        # # special case the position embedding parameter in the root GPT module as not decayed
-        # no_decay.add('pos_emb')
-
-        # special case the layer weights for memory attn (TODO: ?not sure if should or should not weight decay)
-        no_decay.add('layer_weight')
+        # # special case the memory weights parameter in the root FeedbackTtransformer
+        no_decay.add('transformer.weights')  #GVS TODO: not sure if should decay or not
 
         # validate that we considered every parameter
         param_dict = {pn: p for pn, p in module.named_parameters()}
@@ -227,7 +227,7 @@ class FTLitModule(pl.LightningModule):
         # logits, memory = self.model(x,
         #                             memory=None, #self._memory,
         #                             return_memory=True)
-        logits = self.model(x)
+        logits, _ = self.model(x)
         #print(f"training_step x.size={x.size()} logits.size={logits.size()}")
         loss = F.cross_entropy(logits.view(-1, logits.size(-1)), y.view(-1))
 
@@ -247,13 +247,9 @@ class FTLitModule(pl.LightningModule):
 
         x = x.T.contiguous()
         y = y.T.contiguous()
-        logits = self.model(x)  #, memory=None)  #self._memory)
+        logits, _ = self.model(x)  #, memory=None)  #self._memory)
         loss = F.cross_entropy(logits.view(-1, logits.size(-1)), y.view(-1))
 
-        # # 1. calculate loss
-        # loss = F.cross_entropy(y_hat, y)
-
-        # 2. log `val_loss`
         self.log('val_loss', loss, on_step=True, on_epoch=True, prog_bar=True)
         metrics = {'val_loss': loss} #, 'val_acc': acc}
         return metrics
@@ -282,15 +278,17 @@ class FTLitModule(pl.LightningModule):
     #     return result
 
     def sample_ahead(self, x, n_samples, temperature=1.0, randsampling=False, top_k=None):
+        assert len(x.shape) == 1  # expecting a vector of len t
         x_in = torch.unsqueeze(x, 0)  #torch.unsqueeze(x,0) ##== x[None, ...]
+        assert x_in.shape[0] == 1  # (b=1, t)
         preds = sample(self.model, self.hparams.transformer.seq_len, x_in, steps=n_samples, temperature=temperature, sample=randsampling, top_k=top_k)
         # print(f"sample_ahead: x_in.size={x_in.size()} preds.size={preds.size()}")
         return preds.detach().squeeze()
         # return preds.detach()[0]
 
     def reset_episode(self):
-        #print("****** RESET EPISODE ****")
-        self.model.free()
+        print("****** RESET EPISODE ****", datetime.datetime.now())
+        self.model.transformer.free()
 
 
 def eval_predict_cmd_tokens(trainer, pl_module: FTLitModule, dataset, tokenizer=None):
@@ -305,82 +303,78 @@ def eval_predict_cmd_tokens(trainer, pl_module: FTLitModule, dataset, tokenizer=
             rank = trainer.rank
 
     max_eval_games = pl_module.hparams.trainer.limit_val_batches
+    eval_sampling = pl_module.hparams.trainer.eval_sampling
 
     for igame in range(min(dataset.num_games, max_eval_games)):
-        if igame % 10 == 0:
+        if eval_sampling < 2 or igame % eval_sampling == 0:
             if rank == 0:
                 print(f"+{igame} [:{dataset.get_num_steps(igame)}] --------------------------")
-        if hasattr(pl_module, 'reset_episode'):
-            pl_module.reset_episode()
-        for istep in range(1, dataset.get_num_steps(igame)):
-            total_cmds += 1
-            # _span_debug, _, _ = dataset.get_token_idxs(igame, 0, istep)
-            # print(f"get_token_idxs(igame={igame}, 0, end_step={istep})  {_span_debug}")
-            # print(dataset.data[_span_debug[0]:_span_debug[1]+1])
-            x, y, cmd_start_pos = dataset.get_cmd_prompt_for_gamestep(igame, istep, continuation=-1)
-            cmd_start_pos = cmd_start_pos.to(pl_module.device)
-            x = x.to(pl_module.device)
-            y = y.to(pl_module.device)
-            cmd_len = len(x) - int(cmd_start_pos) - 1
-            x_trunc = x[0:int(cmd_start_pos) + 1]
-            y_trunc = y[0:int(cmd_start_pos) + cmd_len]
-            # print(f"len(x)={len(x)}, cmd_start_pos={cmd_start_pos}" )
-            # print("cmd_len", cmd_len)
-            # print("x:", x)
-            # print("x_trunc:", x_trunc)
-            # print(f"len(x_trunc) = {len(x_trunc)}")
-            assert x_trunc[int(
-                cmd_start_pos)] == dataset.cmd_start, f"{cmd_start_pos}: {x_trunc[int(cmd_start_pos)]} {x_trunc}"
-            predicted = pl_module.sample_ahead(x_trunc, n_samples=cmd_len, temperature=1.0, randsampling=False,
-                                               top_k=None)
-            # print(f"predicted shape = {predicted.shape}")
-            predicted = predicted.T
-            assert len(predicted) == len(y_trunc) + 1, f"{len(predicted)} {len(y_trunc)}"
-            assert predicted[1] == y_trunc[0], f"{predicted[0:5]} {y_trunc[0:5]}"
+            if hasattr(pl_module, 'reset_episode'):
+                pl_module.reset_episode()
+            for istep in range(1, dataset.get_num_steps(igame)):
+                total_cmds += 1
+                # _span_debug, _, _ = dataset.get_token_idxs(igame, 0, istep)
+                # print(f"get_token_idxs(igame={igame}, 0, end_step={istep})  {_span_debug}")
+                # print(dataset.data[_span_debug[0]:_span_debug[1]+1])
+                x, y, cmd_start_pos = dataset.get_cmd_prompt_for_gamestep(igame, istep, continuation=-1)
+                cmd_start_pos = cmd_start_pos.to(pl_module.device)
+                x = x.to(pl_module.device)
+                y = y.to(pl_module.device)
+                cmd_len = len(x) - int(cmd_start_pos) - 1
+                x_trunc = x[0:int(cmd_start_pos) + 1]
+                y_trunc = y[0:int(cmd_start_pos) + cmd_len]
+                assert x_trunc[int(
+                    cmd_start_pos)] == dataset.cmd_start, f"{cmd_start_pos}: {x_trunc[int(cmd_start_pos)]} {x_trunc}"
+                predicted = pl_module.sample_ahead(x_trunc, n_samples=cmd_len, temperature=1.0, randsampling=False,
+                                                   top_k=None)
+                # print(f"predicted shape = {predicted.shape}")
+                predicted = predicted.T
+                assert len(predicted) == len(y_trunc) + 1, f"{len(predicted)} {len(y_trunc)}"
+                assert predicted[1] == y_trunc[0], f"{predicted[0:5]} {y_trunc[0:5]}"
 
-            n_matched_torch = int(
-                torch.sum(predicted[-cmd_len:] == y_trunc[-cmd_len:]))  # torch 1.7 has torch.count_nonzero()
-            n_cmd_tokens = int(cmd_len)
-            # y_predicted = predicted.cpu().tolist()
-            # y_ids = y_trunc.detach().cpu().tolist()
-            # assert len(y_predicted) == len(y_ids) + 1, f"{len(y_ids)} {len(y_predicted)}"
-            # assert y_predicted[1] == y_ids[0], f"{y_predicted[0:5]} {y_ids[0:5]}"
+                n_matched_torch = int(
+                    torch.sum(predicted[-cmd_len:] == y_trunc[-cmd_len:]))  # torch 1.7 has torch.count_nonzero()
+                n_cmd_tokens = int(cmd_len)
+                # y_predicted = predicted.cpu().tolist()
+                # y_ids = y_trunc.detach().cpu().tolist()
+                # assert len(y_predicted) == len(y_ids) + 1, f"{len(y_ids)} {len(y_predicted)}"
+                # assert y_predicted[1] == y_ids[0], f"{y_predicted[0:5]} {y_ids[0:5]}"
 
-            # n_cmd_tokens = 0
-            # n_matched = 0
-            # if cmd_len > 1:
-            #     for i in range(1, cmd_len + 1):
-            #         n_cmd_tokens += 1
-            #         if y_predicted[-i] == y_ids[-i]:
-            #             n_matched += 1
-            # assert n_matched == n_matched_torch, f"{n_matched} {n_matched_torch}"
-            # assert n_cmd_tokens == cmd_len
+                # n_cmd_tokens = 0
+                # n_matched = 0
+                # if cmd_len > 1:
+                #     for i in range(1, cmd_len + 1):
+                #         n_cmd_tokens += 1
+                #         if y_predicted[-i] == y_ids[-i]:
+                #             n_matched += 1
+                # assert n_matched == n_matched_torch, f"{n_matched} {n_matched_torch}"
+                # assert n_cmd_tokens == cmd_len
 
-            if n_matched_torch == n_cmd_tokens:
-                full_matches += 1
-            else:  # n_matched_torch != n_cmd_tokens:
-                n_printed += 1
-                n_matched = n_matched_torch
-                if n_printed < 10 or n_printed % 100 == 0 or igame > dataset.num_games - 3:
-                    if rank == 0:
-                        print(
-                            f" {igame}.{istep}  ...   \t{n_matched} / {n_cmd_tokens}   \tacc: {n_matched / n_cmd_tokens:4f}")
-                        if tokenizer:
-                            y_predicted = predicted.cpu().tolist()
-                            y_ids = y_trunc.detach().cpu().tolist()
+                if n_matched_torch == n_cmd_tokens:
+                    full_matches += 1
+                else:  # n_matched_torch != n_cmd_tokens:
+                    n_printed += 1
+                    n_matched = n_matched_torch
+                    if n_printed < 10 or n_printed % 100 == 0 or igame > dataset.num_games - 3:
+                        if rank == 0:
+                            print(
+                                f" {igame}.{istep}  ...   \t{n_matched} / {n_cmd_tokens}   \tacc: {n_matched / n_cmd_tokens:4f}")
+                            if tokenizer:
+                                y_predicted = predicted.cpu().tolist()
+                                y_ids = y_trunc.detach().cpu().tolist()
 
-                            # show_sample(tokenizer, f"{igame}.{istep}", y_predicted, y_ids, n_sampled=n_cmd_tokens)
-                            n_sampled = n_cmd_tokens
-                            _idx = f"{igame}.{istep}"
-                            print(f"({_idx})", tokenizer.decode(y_ids[0:6]), '[....]',
-                                  tokenizer.decode(y_ids[-5 - n_sampled:-n_sampled]), "|",
-                                  tokenizer.decode(y_ids[-n_sampled:]))
-                            print(f"<{_idx}>", tokenizer.decode(y_predicted[1:7]), '[....]',
-                                  tokenizer.decode(y_predicted[-5 - n_sampled:]))
-                            print()
+                                # show_sample(tokenizer, f"{igame}.{istep}", y_predicted, y_ids, n_sampled=n_cmd_tokens)
+                                n_sampled = n_cmd_tokens
+                                _idx = f"{igame}.{istep}"
+                                print(f"({_idx})", tokenizer.decode(y_ids[0:6]), '[....]',
+                                      tokenizer.decode(y_ids[-5 - n_sampled:-n_sampled]), "|",
+                                      tokenizer.decode(y_ids[-n_sampled:]))
+                                print(f"<{_idx}>", tokenizer.decode(y_predicted[1:7]), '[....]',
+                                      tokenizer.decode(y_predicted[-5 - n_sampled:]))
+                                print()
 
-            total_cmd_tokens += n_cmd_tokens
-            total_matched += n_matched_torch
+                total_cmd_tokens += n_cmd_tokens
+                total_matched += n_matched_torch
     return total_matched, total_cmd_tokens, full_matches, total_cmds
 
 
@@ -468,7 +462,7 @@ def main(cfg: DictConfig) -> None:
 
     callback_list = [checkpoint_callback, lr_decay, CUDACallback()]
     if cfg.trainer.patience > 0:
-        early_stopping = EarlyStopping('val_loss', mode='min', patience=cfg.trainer.patience)
+        early_stopping = EarlyStopping('train_loss_step', mode='min', patience=cfg.trainer.patience)
         callback_list.append(early_stopping)
     #early_stopping = EarlyStopping('val_acc', mode='max', patience=5)
 

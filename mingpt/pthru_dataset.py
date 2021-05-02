@@ -23,12 +23,13 @@ class PlaythroughDataset(Dataset):
     TARGET_CMD_TOKENS = "cmd_tokens"
     TARGET_CMD_PROMPTS = "cmd_prompts"
 
-    def __init__(self, data, block_size, cmd_markers: Tuple[int,int] = None, game_start_tok:int = None, span_filtering=None):
+    def __init__(self, data, block_size, cmd_markers: Tuple[int,int] = None, game_start_tok:int = None, pad_tok:int=0, span_filtering=None):
         self.block_size = block_size
         self.data = np.array(data)  # make a copy of the given list of token ids
         self.cmd_spans = None
         self.game_spans = []  # each span (index in cmd_spans of game start, index into cmd_spans of start of next game)
         self.game_start_tok = game_start_tok
+        self.pad_tok = pad_tok
         self.span_filtering = span_filtering
 
         if cmd_markers:
@@ -241,12 +242,14 @@ class PlaythroughDataset(Dataset):
         y = torch.tensor(chunk[1:], dtype=torch.long)
         return x, y
 
-    def get_cmd_prompt_for_gamestep(self, igame:int, istep:int, continuation=-1, fill_id=0):
+    def get_cmd_prompt_for_gamestep(self, igame:int, istep:int, continuation=-1, fill_id=None):
         if self.cmd_spans is None or not self.game_spans:
             assert self.cmd_spans
             assert self.game_spans
             return None, None
         icmd = 0
+        if fill_id is None:
+            fill_id = self.pad_tok
         gamestep_span, _, cmd1_len = self.get_token_idxs(igame, 0, istep, inclusive=(True,True))
         cmd_span = (gamestep_span[1]-cmd1_len+1, gamestep_span[1])
         # np_icmd = np.where((self.cmd_spans == cmd_span).all(axis=1))[0]
@@ -257,7 +260,7 @@ class PlaythroughDataset(Dataset):
         return self._prompt_for_cmd_span(cmd_span[0], cmd_span[1], game_start_idx=gamestep_span[0],
                                          continuation=continuation, fill_id=fill_id)
 
-    def get_cmd_prompt(self, icmd:int, continuation=-1, fill_id=0):
+    def get_cmd_prompt(self, icmd:int, continuation=-1, fill_id=None):
         """ returns a span that ends with the ith cmd_start marker
         (of length block_size, or less if the cmd marker position is less than block_size).
         if continuation > 0, span length is extended, and x_out is padded with fill_id
@@ -266,10 +269,14 @@ class PlaythroughDataset(Dataset):
         if self.cmd_spans is None or icmd >= len(self.cmd_spans):
             return None, None
         cmd_start_idx, cmd_end_idx = self.cmd_spans[icmd]  # span includes the start,end markers
+        if fill_id is None:
+            fill_id = self.pad_tok
         return self._prompt_for_cmd_span(cmd_start_idx, cmd_end_idx, continuation=continuation, fill_id=fill_id)
 
     def _prompt_for_cmd_span(self, cmd_start_idx, cmd_end_idx, game_start_idx=0,
-                             continuation=-1, fill_id=0):
+                             continuation=-1, fill_id=None):
+        if fill_id is None:
+            fill_id = self.pad_tok
         if continuation < 0:
             continuation = cmd_end_idx - cmd_start_idx   # cmd_len
         cmd_start_pos = self.block_size-1   # where in the output buffer the start marker will be
@@ -292,7 +299,9 @@ class PlaythroughDataset(Dataset):
         # print(x_out)
         return torch.tensor(x_out, dtype=torch.long), torch.tensor(y_out, dtype=torch.long), torch.tensor(cmd_start_pos)
 
-    def get_left_padded_block(self, start_idx, end_idx, fill_id=0):
+    def get_left_padded_block(self, start_idx, end_idx, fill_id=None):
+        if fill_id is None:
+            fill_id = self.pad_tok
         if end_idx >= len(self.data):
             # assert False, "THIS SHOULD NOT HAPPEN!"
             print(f"ASSERTION FAILURE get_left_padded_block({start_idx},{end_idx}) data len={len(self.data)}!!!")
@@ -395,14 +404,14 @@ class PlaythroughDataModule(LightningDataModule):
         self.train_dataset = PlaythroughDataset(encoded_data.ids, self.block_size,
                                                 cmd_markers=cmd_markers,
                                                 game_start_tok=self.game_start_tok,
-                                                span_filtering=PlaythroughDataset.TARGET_CMD_TOKENS)
+                                                span_filtering=self.train_filtering)  #PlaythroughDataset.TARGET_CMD_TOKENS)
 
         if self.val_file:
             eval_encoded = self.read_and_encode(self.val_file)
             self.validation_dataset = PlaythroughDataset(eval_encoded.ids, self.block_size,
                                                          cmd_markers=cmd_markers,
                                                          game_start_tok=self.game_start_tok,
-                                                         span_filtering=PlaythroughDataset.TARGET_CMD_TOKENS)
+                                                         span_filtering=self.eval_filtering)   #PlaythroughDataset.TARGET_CMD_TOKENS)
                                         #    span_filtering = PlaythroughDataset.TARGET_CMD_PROMPTS)  # eval accuracy
 
     def train_dataloader(self):

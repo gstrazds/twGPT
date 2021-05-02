@@ -65,6 +65,7 @@ class GPT(Module):
 
         # The mask will be initialized on the first call
         self.mask = None
+        self.apply(_init_weights)
 
     def forward(self, x: torch.Tensor):
         # Create subsequent mask if mask is not initialized
@@ -133,14 +134,14 @@ def _init_weights(module):
     instead of the default Xavier initialzation.
     """
 
-    if not isinstance(module, (nn.Linear, nn.Embedding)):
-        return
-
-    module.weight.data.normal_(mean=0.0, std=0.02)
-
-    # Initialize biases to $0$
-    if isinstance(module, nn.Linear) and module.bias is not None:
+    if isinstance(module, (nn.Linear, nn.Embedding)):
+        module.weight.data.normal_(mean=0.0, std=0.02)
+        # Initialize biases to $0$
+        if isinstance(module, nn.Linear) and module.bias is not None:
+            module.bias.data.zero_()
+    elif isinstance(module, nn.LayerNorm):
         module.bias.data.zero_()
+        module.weight.data.fill_(1.0)
 
 
 # @option(Configs.model)
