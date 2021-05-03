@@ -54,27 +54,31 @@ def sample(model, block_size, x, steps, temperature=1.0, sample=False, top_k=Non
     of block_size, unlike an RNN that has an infinite context window.
     """
     # block_size = model.get_block_size()
+    # x.shape == (b,t_orig) [values are indices into vocab]
     model.eval()
     for k in range(steps):
-        x_cond = x if x.size(1) <= block_size else x[:, -block_size:] # crop context if needed
-        logits, _ = model(x_cond.T.contiguous())
+        # x_cond = x if x.size(1) <= block_size else x[:, -block_size:]  # crop context if needed
+        x_cond = x
+        x_cond = x_cond.T.contiguous()  # shape (t,b) [values are indices into vocab]
+
+        logits, _ = model(x_cond)  # logits.shape = (t,b,v)
         # pluck the logits at the final step and scale by temperature
-        logits = logits[-1, :, :] / temperature
-        # print(f"sample: logits.shape = {logits.shape}")
+        logits = logits[-1, :, :] / temperature  # shape = (b,v)
         # optionally crop probabilities to only the top k options
         if top_k is not None:
             logits = top_k_logits(logits, top_k)
         # apply softmax to convert to probabilities
-        probs = F.softmax(logits, dim=-1)
+        probs = F.softmax(logits, dim=-1)  # (b,v)
         # sample from the distribution or take the most likely
         if sample:
             ix = torch.multinomial(probs, num_samples=1)
         else:
-            _, ix = torch.topk(probs, k=1, dim=-1)  #dim=-1
+            _, ix = torch.topk(probs, k=1, dim=-1)  # greedily choose the single largest
+        # ix is a tensor shape=(b,1) of indices into the v (2nd) dimension of probs tensor
         # append to the sequence and continue
-        x = torch.cat((x, ix), dim=-1)  #dim=-1
+        x = torch.cat((x, ix), dim=-1)  #
 
-    return x
+    return x  # NOTE: returned tensor has shape (b,t_orig+steps)
 
 
 class SamplePredictions(Callback):
@@ -149,7 +153,10 @@ class FTLitModule(pl.LightningModule):
         #self._memory = None
         self.criterion = torch.nn.CrossEntropyLoss()
         self.tokens = 0
-        logger.info("number of parameters: %e", sum(p.numel() for p in self.model.parameters()))
+        if self.model:
+            logger.info("number of parameters: %e", sum(p.numel() for p in self.model.parameters()))
+        else:
+            logger.error(f"FAILED to construct model: {self.model}")
 
     def configure_optimizers(self):
         """
@@ -187,6 +194,8 @@ class FTLitModule(pl.LightningModule):
 
         # validate that we considered every parameter
         param_dict = {pn: p for pn, p in module.named_parameters()}
+        for pn in param_dict.keys():
+            print(pn)
         inter_params = decay & no_decay
         union_params = decay | no_decay
         assert len(inter_params) == 0, "parameters %s made it into both decay/no_decay sets!" % (str(inter_params), )
@@ -222,15 +231,25 @@ class FTLitModule(pl.LightningModule):
         # loss = self.criterion(clf_logits, y)
         # loss = self.criterion(logits.view(-1, logits.size(-1)), x.view(-1).long())
 
+        # TODO: ?if y is all PAD, want to skip this iteration altogether. How?
+
         x = x.T.contiguous()
         y = y.T.contiguous()
+        # assert torch.isfinite(x), f"{x}"
+        # assert torch.isfinite(y), f"{y}"
         # logits, memory = self.model(x,
         #                             memory=None, #self._memory,
         #                             return_memory=True)
-        logits, _ = self.model(x)
+        outputs, _ = self.model(x)
+        # logits = logits.masked_fill(torch.isnan(outputs), 0)
+        # TODO: ?if the last column of outputs is all , return all PAD
         #print(f"training_step x.size={x.size()} logits.size={logits.size()}")
-        loss = F.cross_entropy(logits.view(-1, logits.size(-1)), y.view(-1))
-
+        try:
+            loss = F.cross_entropy(outputs.view(-1, outputs.size(-1)), y.view(-1))
+        except RuntimeError:
+            print(f"RuntimeError computing loss. y={y}")
+            print(f"outputs={outputs}")
+            print(f"x={x}")
         # _keys = memory.keys.detach()
         # _vals = memory.values.detach()
         # self.memory = Memory(_keys, _vals)
@@ -247,8 +266,8 @@ class FTLitModule(pl.LightningModule):
 
         x = x.T.contiguous()
         y = y.T.contiguous()
-        logits, _ = self.model(x)  #, memory=None)  #self._memory)
-        loss = F.cross_entropy(logits.view(-1, logits.size(-1)), y.view(-1))
+        outputs, _ = self.model(x)  #, memory=None)  #self._memory)
+        loss = F.cross_entropy(outputs.view(-1, outputs.size(-1)), y.view(-1))
 
         self.log('val_loss', loss, on_step=True, on_epoch=True, prog_bar=True)
         metrics = {'val_loss': loss} #, 'val_acc': acc}
@@ -476,7 +495,8 @@ def main(cfg: DictConfig) -> None:
                          limit_val_batches=cfg.trainer.limit_val_batches,
                          resume_from_checkpoint=cfg.resume_from_checkpoint,
                          callbacks=callback_list)
-    torch.autograd.set_detect_anomaly(True)
+
+    # torch.autograd.set_detect_anomaly(True)
     trainer.fit(pl_model, _datamodule)
 
     finish_time = datetime.datetime.now()

@@ -14,8 +14,13 @@ gpt:
 #  n_embd: 512
 #  block_size: 128  # context window
 
+transformer:
+  n_layers: 6
+  seq_len: 128    # aka block_size or 'attention window size'
+
 trainer:
-  patience: 5
-  save_top_k: 5
+  batch_size: 192
+  patience: 10
+  save_top_k: 10
   val_check_interval: 0.1
   limit_val_batches: 200

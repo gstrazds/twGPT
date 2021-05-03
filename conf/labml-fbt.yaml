@@ -1,4 +1,6 @@
 # @package _global_
+defaults:
+  - overrides: null   # can add arbitrary config files in conf/overrides/ to override values listed here
 
 train_ftwc: True
 resume_from_checkpoint: null  #/home/guntis/work/0_magd3/tw13/minGPT/saved_models/dec18-startofepoch2.ckpt
@@ -28,21 +30,21 @@ data:
 transformer:    # Feedback Transformer
   d_model: 512    # n_embd
   n_heads: 8
-  n_layers: 8
+  n_layers: 5
   dropout: 0.1    # embd_pdrop, resid_pdrop, attn_pdrop
   # d_ff: 2048    # 4*${transformer.d_model}   # 2048 = 4 * d_model -- FF layer of transformer encoder block
-  seq_len: 32    # aka block_size or 'attention window size'
+  seq_len: 512    # aka block_size or 'attention window size'
   n_vocab:  20000 # number of unique token ids -- set/updated after we load the vocabulary
 
 trainer:
   max_epochs: 5
-  batch_size: 640  # 12*192
+  batch_size: 48 #640  # 12*192
   learning_rate: 6e-4
-  val_check_interval: 0.2
+  val_check_interval: 0.25
   patience: 8
   save_top_k: 20
   limit_val_batches: 200  # 10000 should cover all of our current validation set (but maybe not the test set?)
-  eval_sampling: 5   # evaluate only one out of N games
+  eval_sampling: 40   # evaluate only one out of N games
   betas:
     - 0.9
     - 0.95

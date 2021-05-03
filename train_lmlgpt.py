@@ -58,7 +58,7 @@ def sample(model, block_size, x, steps, temperature=1.0, sample=False, top_k=Non
         x_cond = x if x.size(1) <= block_size else x[:, -block_size:] # crop context if needed
         x_cond = x_cond.T.contiguous()  # shape (t,b) [values are indices into vocab]
 
-        logits, _ = model(x_cond)   # logits.shape = (t,b,v)
+        logits, _ = model(x_cond)  # logits.shape = (t,b,v)
         # pluck the logits at the final step and scale by temperature
         logits = logits[-1, :, :] / temperature  # shape = (b,v)
         # optionally crop probabilities to only the top k options
@@ -70,7 +70,7 @@ def sample(model, block_size, x, steps, temperature=1.0, sample=False, top_k=Non
         if sample:
             ix = torch.multinomial(probs, num_samples=1)
         else:
-            _, ix = torch.topk(probs, k=1, dim=-1)  #greedily choose the single largest
+            _, ix = torch.topk(probs, k=1, dim=-1)  # greedily choose the single largest
         # ix is a tensor shape=(b,1) of indices into the v (2nd) dimension of probs tensor
         # append to the sequence and continue
         x = torch.cat((x, ix), dim=-1)  #
@@ -195,7 +195,7 @@ class GPTLitModule(pl.LightningModule):
         if self.model:
             logger.info("number of parameters: %e", sum(p.numel() for p in self.model.parameters()))
         else:
-            logger.warning(f"FAILED: build_GPT() model={self.model}")
+            logger.error(f"FAILED to build model: {self.model}")
 
     def configure_optimizers(self):
         """
@@ -251,8 +251,8 @@ class GPTLitModule(pl.LightningModule):
 
         # validate that we considered every parameter
         param_dict = {pn: p for pn, p in module.named_parameters()}
-        for k in param_dict.keys():
-            print(k)
+        for pn in param_dict.keys():
+            print(pn)
         inter_params = decay & no_decay
         union_params = decay | no_decay
         assert len(inter_params) == 0, "parameters %s made it into both decay/no_decay sets!" % (str(inter_params), )
@@ -286,9 +286,9 @@ class GPTLitModule(pl.LightningModule):
 
         x = x.T.contiguous()
         y = y.T.contiguous()
-        logits, _ = self.model(x)
-        #print(f"training_step x.size={x.size()} logits.size={logits.size()}")
-        loss = F.cross_entropy(logits.view(-1, logits.size(-1)), y.view(-1))
+        outputs, _ = self.model(x)
+        #print(f"training_step x.size={x.size()} outputs.size={outputs.size()}")
+        loss = F.cross_entropy(outputs.view(-1, outputs.size(-1)), y.view(-1))
 
         self.log('train_loss', loss, on_step=True, on_epoch=True, prog_bar=True)
         return {"loss": loss}
@@ -302,8 +302,8 @@ class GPTLitModule(pl.LightningModule):
 
         x = x.T.contiguous()
         y = y.T.contiguous()
-        logits, _ = self.model(x)
-        loss = F.cross_entropy(logits.view(-1, logits.size(-1)), y.view(-1))
+        outputs, _ = self.model(x)
+        loss = F.cross_entropy(outputs.view(-1, outputs.size(-1)), y.view(-1))
 
         self.log('val_loss', loss, on_step=True, on_epoch=True, prog_bar=True)
         metrics = {'val_loss': loss} #, 'val_acc': acc}
@@ -513,7 +513,7 @@ def main(cfg: DictConfig) -> None:
                          limit_val_batches=cfg.trainer.limit_val_batches,
                          resume_from_checkpoint=cfg.resume_from_checkpoint,
                          callbacks=callback_list)
-    torch.autograd.set_detect_anomaly(True)
+    #torch.autograd.set_detect_anomaly(True)
     trainer.fit(pl_model, _datamodule)
 
     finish_time = datetime.datetime.now()
