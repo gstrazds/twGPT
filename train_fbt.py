@@ -46,20 +46,22 @@ logger = logging.getLogger(__name__)
 
 
 @torch.no_grad()
-def sample(model, block_size, x, steps, temperature=1.0, sample=False, top_k=None):
+def sample(model, x, steps, temperature=1.0, sample=False, top_k=None, block_size=None):
     """
-    take a conditioning sequence of indices in x (of shape (b,t)) and predict the next token in
+    take a conditioning sequence of indices in x (of shape (t,b)) and predict the next token in
     the sequence, feeding the predictions back into the model each time. Clearly the sampling
     has quadratic complexity unlike an RNN that is only linear, and has a finite context window
     of block_size, unlike an RNN that has an infinite context window.
     """
     # block_size = model.get_block_size()
-    # x.shape == (b,t_orig) [values are indices into vocab]
-    model.eval()
+    # x.shape == (t_orig,b) [values are indices into vocab]
+    # model.eval()  # this should be done by caller, before looping on sample()
     for k in range(steps):
-        # x_cond = x if x.size(1) <= block_size else x[:, -block_size:]  # crop context if needed
-        x_cond = x
-        x_cond = x_cond.T.contiguous()  # shape (t,b) [values are indices into vocab]
+        if block_size:
+            x_cond = x if x.size(0) <= block_size else x[-block_size:, :]  # crop context if needed
+        else:
+            x_cond = x
+        # x_cond = x_cond.T.contiguous()  # shape (t,b) [values are indices into vocab]
 
         logits, _ = model(x_cond)  # logits.shape = (t,b,v)
         # pluck the logits at the final step and scale by temperature
@@ -74,12 +76,18 @@ def sample(model, block_size, x, steps, temperature=1.0, sample=False, top_k=Non
             ix = torch.multinomial(probs, num_samples=1)
         else:
             _, ix = torch.topk(probs, k=1, dim=-1)  # greedily choose the single largest
-        # ix is a tensor shape=(b,1) of indices into the v (2nd) dimension of probs tensor
+        # ix is a tensor shape=(b,1) of indices into the v (time) dimension of probs tensor
         # append to the sequence and continue
-        x = torch.cat((x, ix), dim=-1)  #
+        x = torch.cat((x, ix.T), dim=0)  #
 
-    return x  # NOTE: returned tensor has shape (b,t_orig+steps)
+    return x.detach()  # NOTE: returned tensor has shape (t_orig+steps,b)
 
+
+def compute_cmd_acc(n_matched, total_cmd_tokens, full_matches, num_cmds):
+    cmd_token_acc = n_matched / total_cmd_tokens
+    cmd_acc = full_matches / num_cmds
+    print(f"VALIDATION CMD_TOKEN_ACC = {cmd_token_acc:.5f}  CMD_ACC = {cmd_acc:.5f}")
+    return cmd_acc, cmd_token_acc
 
 class SamplePredictions(Callback):
     def __init__(self, tokenizer, dataset, how_many=3, out_dir=None, **kwargs):
@@ -92,9 +100,7 @@ class SamplePredictions(Callback):
     def on_validation_end(self, trainer, pl_module):
         n_matched, total_cmd_tokens, full_matches, num_cmds = \
                                 eval_predict_cmd_tokens(trainer, pl_module, self.dataset, tokenizer=self.tokenizer)
-        cmd_token_acc = n_matched / total_cmd_tokens
-        cmd_acc = full_matches / num_cmds
-        print(f"VALIDATION CMD_TOKEN_ACC = {cmd_token_acc:.5f}  CMD_ACC = {cmd_acc:.5f}")
+        cmd_acc, cmd_token_acc = compute_cmd_acc(n_matched, total_cmd_tokens, full_matches, num_cmds)
         # (NOT YET SUPPORTED): pl_module.log("val_acc", n_matched / total_cmd_tokens, on_step=False, on_epoch=True, prog_bar=True)
         pl_module.logger.log_metrics({"cmd_acc": cmd_acc}, step=trainer.global_step)  #n_matched / total_cmd_tokens)
         pl_module.logger.log_metrics({"tok_acc": cmd_token_acc}, step=trainer.global_step)  #n_matched / total_cmd_tokens)
@@ -102,6 +108,24 @@ class SamplePredictions(Callback):
             with open(self.out_dir +
                       f'cmd_acc_{trainer.current_epoch}-step{trainer.global_step:05d}_{cmd_token_acc:.6f}_{cmd_acc:.6f}.txt', 'w') as outfile:
                 outfile.write(f"{cmd_token_acc}\t{n_matched}\t{total_cmd_tokens}\t{cmd_acc}\t{full_matches}\t{num_cmds}\t{trainer.current_epoch}\t{trainer.global_step}")
+
+
+class SampleChars(Callback):
+    def __init__(self, dataset, prompt="This is ", how_many=10, out_dir=None, **kwargs):
+        super().__init__(**kwargs)
+        self.dataset = dataset
+        self.how_many = how_many
+        self.prompt = prompt
+        self.prompt_separator = ''
+        self.out_dir = out_dir
+
+    def on_validation_end(self, trainer, pl_module):
+        x = torch.tensor(self.dataset.encode_str(self.prompt), dtype=torch.long)
+        x = x.to(pl_module.device)
+        x_with_continuation = pl_module.sample_ahead(x, n_samples=self.how_many,
+                                                     temperature=1.0, randsampling=False, top_k=None)
+
+        logger.info("Sampled: " + self.dataset.decode_tokids(x_with_continuation))
 
 
 def show_sample(tokenizer, idx, y_predicted, y_ids, n_sampled=5):
@@ -149,6 +173,7 @@ class FTLitModule(pl.LightningModule):
                         dropout=config.transformer.dropout,
                         d_ff=4*config.transformer.d_model,  #config.transformer.d_ff,
                         n_vocab=config.transformer.n_vocab,
+                        max_mem=config.transformer.max_steps,
                 )
         #self._memory = None
         self.criterion = torch.nn.CrossEntropyLoss()
@@ -298,12 +323,13 @@ class FTLitModule(pl.LightningModule):
 
     def sample_ahead(self, x, n_samples, temperature=1.0, randsampling=False, top_k=None):
         assert len(x.shape) == 1  # expecting a vector of len t
-        x_in = torch.unsqueeze(x, 0)  #torch.unsqueeze(x,0) ##== x[None, ...]
-        assert x_in.shape[0] == 1  # (b=1, t)
-        preds = sample(self.model, self.hparams.transformer.seq_len, x_in, steps=n_samples, temperature=temperature, sample=randsampling, top_k=top_k)
+        x_in = torch.unsqueeze(x, -1)  #torch.unsqueeze(x,0) ##== x[None, ...]
+        assert x_in.shape[1] == 1  # (t, b=1)
+        preds = sample(self.model, x_in, steps=n_samples, temperature=temperature, sample=randsampling, top_k=top_k,
+                       block_size=None)  #self.hparams.transformer.seq_len)
+        # preds.shape == (t+n_samples, 1)
         # print(f"sample_ahead: x_in.size={x_in.size()} preds.size={preds.size()}")
-        return preds.detach().squeeze()
-        # return preds.detach()[0]
+        return preds.squeeze()  # get rid of empty batch dim and return a simple vector
 
     def reset_episode(self):
         print("****** RESET EPISODE ****", datetime.datetime.now())
@@ -335,7 +361,7 @@ def eval_predict_cmd_tokens(trainer, pl_module: FTLitModule, dataset, tokenizer=
                 # _span_debug, _, _ = dataset.get_token_idxs(igame, 0, istep)
                 # print(f"get_token_idxs(igame={igame}, 0, end_step={istep})  {_span_debug}")
                 # print(dataset.data[_span_debug[0]:_span_debug[1]+1])
-                x, y, cmd_start_pos = dataset.get_cmd_prompt_for_gamestep(igame, istep, continuation=-1)
+                x, y, cmd_start_pos = dataset.get_cmd_prompt_for_gamestep(igame, istep, continuation=-1, block_size=-1)
                 cmd_start_pos = cmd_start_pos.to(pl_module.device)
                 x = x.to(pl_module.device)
                 y = y.to(pl_module.device)
@@ -374,7 +400,7 @@ def eval_predict_cmd_tokens(trainer, pl_module: FTLitModule, dataset, tokenizer=
                 else:  # n_matched_torch != n_cmd_tokens:
                     n_printed += 1
                     n_matched = n_matched_torch
-                    if n_printed < 10 or n_printed % 100 == 0 or igame > dataset.num_games - 3:
+                    if eval_sampling < 2 or n_printed < 10 or n_printed % eval_sampling == 0 or igame > dataset.num_games - 3:
                         if rank == 0:
                             print(
                                 f" {igame}.{istep}  ...   \t{n_matched} / {n_cmd_tokens}   \tacc: {n_matched / n_cmd_tokens:4f}")
@@ -394,6 +420,7 @@ def eval_predict_cmd_tokens(trainer, pl_module: FTLitModule, dataset, tokenizer=
 
                 total_cmd_tokens += n_cmd_tokens
                 total_matched += n_matched_torch
+                cmd_acc, cmd_token_acc = compute_cmd_acc(total_matched, total_cmd_tokens, full_matches, total_cmds)
     return total_matched, total_cmd_tokens, full_matches, total_cmds
 
 
@@ -487,7 +514,9 @@ def main(cfg: DictConfig) -> None:
 
     if cfg.train_ftwc:
         show_samples_callback = SamplePredictions(_datamodule.tokenizer, _datamodule.validation_dataset, out_dir="./", how_many=5)
-        callback_list.append(show_samples_callback)
+    else:
+        show_samples_callback = SampleChars(_datamodule.validation_dataset, prompt="This is ", how_many=25)
+    callback_list.append(show_samples_callback)
 
     trainer = pl.Trainer(gpus=cfg.gpus,
                          max_epochs=cfg.trainer.max_epochs,

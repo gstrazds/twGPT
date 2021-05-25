@@ -82,13 +82,14 @@ class FeedbackAttention(Module):
         # These transform the `query` multi-headed attention.
         self.query = PrepareForMultiHeadAttention(d_model, n_heads, self.d_k, bias=False)
         # These transform the `key` and `value` for multi-headed attention.
-        if not is_kv_precomputed:
+        if not is_kv_precomputed:  # for original FeedbackTransformer
+            # each FeedbackAttention layer computes key, value
             self.key = PrepareForMultiHeadAttention(d_model, n_heads, self.d_k, bias=False)
             self.value = PrepareForMultiHeadAttention(d_model, n_heads, self.d_k, bias=True)
         # Keys and values are already calculated
-        else:
-            self.key = None
-            self.value = None
+        else:   # is_kv_precomputed is True when building FeedbackTransformerKV
+            self.key = None  # a shared PrepareForMultiHeadAttention module is invoked by parent module
+            self.value = None  # shared PrepareForMultiHeadAttention module is invoked by parent module
 
         # Output layer
         self.output = nn.Linear(d_model, d_model)
@@ -168,10 +169,10 @@ class FeedbackAttention(Module):
         # `key` and `value`  will then have shape `[seq_len, batch_size, heads, d_k]`
         # and `query` will have shape `[batch_size, heads, d_k]`
         query = self.query(query)
-        if self.key:
-            key = self.key(key)
-        if self.value:
-            value = self.value(value)
+        if self.key:                # is None in FeedbackTransformerKV
+            key = self.key(key)     # (compute if not already "precomputed" by FeedbackTransformerKV module)
+        if self.value:              # not None if is_kv_precomputed was False (original FeedbackTransformer)
+            value = self.value(value)  # (compute if not already "precomputed" by parent module)
 
         # Compute attention scores.
         # Results in a tensor of shape `[seq_len, batch_size, heads]`
@@ -231,6 +232,8 @@ class FeedbackTransformerLayer(Module):
                 key: Optional[torch.Tensor],
                 value: Optional[torch.Tensor]):
         # If there is memory
+        #   [skipped for first token, x is unchanged because key is None (assertion: value is also None)]
+        # in FeedbackTransformer.forward: mem_tensor is None; in FeedbackTransformerKV step > 0 is False
         if key is not None:
             # Normalize the vectors before doing self attention
             z = self.norm_self_attn(x)
@@ -245,7 +248,6 @@ class FeedbackTransformerLayer(Module):
         ff = self.feed_forward(z)
         # Add the feed-forward results back
         x = x + self.dropout(ff)
-
         #
         return x
 
@@ -447,9 +449,10 @@ class FeedbackTransformerKV(Module):
     ## Updated Feedback Transformer Module
 
     This is the updated feedback transformer module that caches the keys and values.
+    (Shares self.key, self.value modules across all layers)
     """
 
-    def __init__(self, layer: FeedbackTransformerLayer, n_layers: int, d_model: int, n_heads: int):
+    def __init__(self, layer: FeedbackTransformerLayer, n_layers: int, d_model: int, n_heads: int, max_mem: int = 512):
         """
         * `layer` is the feedback transformer layer, which we clone for each layer
         * `n_layers` is the number of layers in the transformer
@@ -470,15 +473,15 @@ class FeedbackTransformerKV(Module):
 
         # Number of features in a head
         d_k = d_model // n_heads
-        # Module to transform embeddings (memory) to get keys
+        # Module to transform embeddings (memory) to get keys (shared by all layers)
         self.key = PrepareForMultiHeadAttention(d_model, n_heads, d_k, bias=False)
         # Module to transform embeddings (memory) to get keys
         self.value = PrepareForMultiHeadAttention(d_model, n_heads, d_k, bias=False)
 
         # Memory for stacked keys
-        self.mem_key = Stack(512)
+        self.mem_key = Stack(max_mem)
         # Memory for stacked values
-        self.mem_value = Stack(512)
+        self.mem_value = Stack(max_mem)
 
     def forward(self, x_seq: torch.Tensor):
         """
@@ -595,6 +598,7 @@ def feedback_transformer_kv(
     d_ff: int = 2048,
     n_layers: int = 6,
     n_vocab: int = 20000,
+    max_mem: int = 512,
 ):
     """
     Create [updated feedback transformer](index.html#kv_shared), with precalculated keys and values.
@@ -606,4 +610,4 @@ def feedback_transformer_kv(
                                      attn=FeedbackAttention(n_heads, d_model, dropout, is_kv_precomputed=True),
                                      feed_forward=FeedForward(d_model, d_ff, dropout),
                                      dropout_prob=dropout),
-            n_layers, d_model, n_heads))  # .to(c.device)
+            n_layers, d_model, n_heads, max_mem=max_mem))  # .to(c.device)

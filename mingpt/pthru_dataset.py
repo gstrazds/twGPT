@@ -158,7 +158,7 @@ class PlaythroughDataset(Dataset):
                     # from token spans that end with a cmd sequence
                     if self.span_filtering == PlaythroughDataset.TARGET_CMD_PROMPTS:
                         self._add_to_index((igame, step))
-                    else:  # self.span_filtering == PlaythroughDataset.TARGET_CMD_TOKENS
+                    else:  # self.span_filtering == PlaythroughDataset.TARGET_CMD_TOKENS  # return a record ending at each tokan
                         span, cmd0_len, cmd1_len = self.get_token_idxs(igame, 0, step, inclusive=(True,True))
                         game_start_idx = span[0]  # idx of start of this game
                         # if _span_len(span) >= self.block_size:
@@ -167,7 +167,7 @@ class PlaythroughDataset(Dataset):
                             if _start_idx < game_start_idx:
                                 # print(f"Discarding span {subspan} from eval index")
                                 # continue  # skip this one, it doesn't satisfy reqs
-                                _start_idx = game_start_idx  # clip to start of game (will be left-padded on retrieval)
+                                _start_idx = game_start_idx  # clip to start of game (block will be padded on retrieval)
                             subspan = (_start_idx, span[1]-j) # clipped span, len == block_size or less
                             self._add_to_index(subspan)  # this subspan gets included in the dataset
         else:  # index all within-game spans of len self.block_size
@@ -242,7 +242,7 @@ class PlaythroughDataset(Dataset):
         y = torch.tensor(chunk[1:], dtype=torch.long)
         return x, y
 
-    def get_cmd_prompt_for_gamestep(self, igame:int, istep:int, continuation=-1, fill_id=None):
+    def get_cmd_prompt_for_gamestep(self, igame:int, istep:int, continuation=-1, fill_id=None, block_size=None):
         if self.cmd_spans is None or not self.game_spans:
             assert self.cmd_spans
             assert self.game_spans
@@ -257,8 +257,11 @@ class PlaythroughDataset(Dataset):
         #     icmd = np_icmd[0]  # pull out the value
         # else:
         #     print(f"Failed to find {cmd_span} in self.cmd_spans")
+        if block_size == -1:
+            block_size = _span_len(gamestep_span) - cmd1_len - 1 # full length of playthrough up to istep cmd
+            print(f"get_cmd_prompt_for_game={igame}_step={istep} AUTO block_size={block_size}")
         return self._prompt_for_cmd_span(cmd_span[0], cmd_span[1], game_start_idx=gamestep_span[0],
-                                         continuation=continuation, fill_id=fill_id)
+                                         continuation=continuation, fill_id=fill_id, block_size=block_size)
 
     def get_cmd_prompt(self, icmd:int, continuation=-1, fill_id=None):
         """ returns a span that ends with the ith cmd_start marker
@@ -274,21 +277,23 @@ class PlaythroughDataset(Dataset):
         return self._prompt_for_cmd_span(cmd_start_idx, cmd_end_idx, continuation=continuation, fill_id=fill_id)
 
     def _prompt_for_cmd_span(self, cmd_start_idx, cmd_end_idx, game_start_idx=0,
-                             continuation=-1, fill_id=None):
+                             continuation=-1, fill_id=None, block_size=None):
         if fill_id is None:
             fill_id = self.pad_tok
+        if block_size <= 0 or block_size is None:
+            block_size = self.block_size
         if continuation < 0:
             continuation = cmd_end_idx - cmd_start_idx   # cmd_len
-        cmd_start_pos = self.block_size-1   # where in the output buffer the start marker will be
-        prompt_len = self.block_size
-        start_idx = cmd_start_idx - self.block_size + 1
+        cmd_start_pos = block_size-1   # where in the output buffer the start marker will be
+        prompt_len = block_size
+        start_idx = cmd_start_idx - block_size + 1
         if start_idx < game_start_idx:
             prompt_len -= (game_start_idx - start_idx)
             cmd_start_pos -= (game_start_idx - start_idx)
             start_idx = game_start_idx
 
         output_len = prompt_len + continuation
-        x_len = output_len - cmd_start_pos
+        x_len = output_len - cmd_start_pos   # NOTE: can be negative e.g. if output_len is shorter than block_size
         if start_idx + x_len >= len(self.data):  # NOTE: numpy automatically truncates slices at max pos
             x_len = len(self.data) - start_idx
         x_out = np.full(output_len, fill_value=fill_id)

@@ -3,7 +3,8 @@ defaults:
   - overrides: null   # can add arbitrary config files in conf/overrides/ to override values listed here
 
 train_ftwc: True
-resume_from_checkpoint: null  #/home/guntis/work/0_magd3/tw13/minGPT/saved_models/dec18-startofepoch2.ckpt
+resume_from_checkpoint: /home/guntis/work/0_magd3/tw13/minGPT/outputs/2021-05-04/07-27-03/lightning_logs/version_0/checkpoints/lmlfbt-epoch=0-step=1739-train_loss_step=0.074-val_loss=0.220.ckpt
+#resume_from_checkpoint: null
 
 gpus:   # set to a single int n to auto-select n gpus from all available, or to a list of gpu indices e.g. [0,1,2,3]
   - 0   # this is a list: [0,]
@@ -24,8 +25,8 @@ data:
 #  test_file: null
 #  tokenizer_file: null
   num_workers: 4
-  train_filtering: cmd_tokens
-  eval_filtering: cmd_tokens
+  train_filtering: cmd_tokens  #TODO: cmd_prompts  (but first impl auto)block_len
+  eval_filtering: cmd_tokens   #TODO: cmd_prompts
 
 transformer:    # Feedback Transformer
   d_model: 512    # n_embd
@@ -34,17 +35,18 @@ transformer:    # Feedback Transformer
   dropout: 0.1    # embd_pdrop, resid_pdrop, attn_pdrop
   # d_ff: 2048    # 4*${transformer.d_model}   # 2048 = 4 * d_model -- FF layer of transformer encoder block
   seq_len: 512    # aka block_size or 'attention window size'
+  max_steps: 5000  # max positional encoding or memory length for Feecback Transformer
   n_vocab:  20000 # number of unique token ids -- set/updated after we load the vocabulary
 
 trainer:
   max_epochs: 5
   batch_size: 48 #640  # 12*192
-  learning_rate: 6e-4
-  val_check_interval: 0.25
+  learning_rate: 2e-4
+  val_check_interval: 0.02
   patience: 8
   save_top_k: 20
   limit_val_batches: 200  # 10000 should cover all of our current validation set (but maybe not the test set?)
-  eval_sampling: 40   # evaluate only one out of N games
+  eval_sampling: 1   # evaluate only one out of N games
   betas:
     - 0.9
     - 0.95
@@ -55,5 +57,7 @@ trainer:
   decay_tokens: 2*${data.training.num_tokens}*${gpt.block_size} # caller updates decay_tokens after loading training data
 
 eval:
-  checkpoint: ${cwd_path}/saved_models/dec18-startofepoch2.ckpt
+#  checkpoint: ${cwd_path}/saved_models/dec18-startofepoch2.ckpt
+  checkpoint: /home/guntis/work/0_magd3/tw13/minGPT/outputs/2021-05-04/07-27-03/lightning_logs/version_0/checkpoints/lmlfbt-char-epoch=0-step=1739-train_loss_step=0.074-val_loss=0.220.ckpt
+
 

@@ -32,7 +32,7 @@ class CharDataset(Dataset):
         # grab a chunk of (block_size + 1) characters from the data
         chunk = self.data[idx:idx + self.block_size + 1]
         # encode every character to an integer
-        dix = [self.stoi[s] for s in chunk]
+        dix = self.encode_str(chunk)
         """
         arrange data and targets so that the first i elements of x
         will be asked to predict the i-th element of y. Notice that
@@ -69,6 +69,16 @@ class CharDataset(Dataset):
         x = torch.tensor(dix[:-1], dtype=torch.long)
         y = torch.tensor(dix[1:], dtype=torch.long)
         return x, y
+
+    def encode_str(self, str):
+        return [self.stoi[s] for s in str]
+
+    def decode_tokids(self, buf):
+        if len(buf) > 0 and hasattr(buf[0], "item"):
+            tokids = [self.itos[tokid.item()] for tokid in buf]
+        else:
+            tokids = [self.itos[tokid] for tokid in buf]
+        return ''.join(tokids)
 
     def print_info(self, name="CharDataset"):
         print(f"{name} datalen={len(self.data)} len={len(self)} vocab_size={self.vocab_size}")
