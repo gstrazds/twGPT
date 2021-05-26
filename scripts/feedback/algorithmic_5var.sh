@@ -6,7 +6,7 @@
 # This source code is licensed under the license found in the
 # LICENSE file in the root directory of this source tree.
 
-data_path=data/corsair/algo_seq_5var/
+data_path=data/gengo/algo_seq_5var/
 
 # Generate data if needed
 python data/gen_data_algo_seq.py --variables 5 --path $data_path
@@ -29,5 +29,5 @@ python -m torch.distributed.launch --nproc_per_node=$ngpus main.py \
     --hid-sz 256 --inner-hid-sz 1024 --mem-sz 64 --nlayers 4 \
     --lr 0.0001 --momentum 0 --dropout 0.2 --optim adam --lr-warmup 1000 \
     --attn-lim 100 --nheads 4 --grad-clip 0.1 --pre-norm \
-    --feedback --checkpoint algo_5var.ckpt --checkpoint-freq 5
+    --feedback --checkpoint checkpoints/corsair/gengo_5var.ckpt --checkpoint-freq 10
 
