@@ -51,7 +51,7 @@ class Dictionary(object):
         return line.split()
 
     def build(self, path):
-        assert os.path.exists(path)
+        assert os.path.exists(path), path
         # Add words to the dictionary
         with open(path, "r", encoding="utf8") as f:
             for line in f:

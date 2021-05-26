@@ -6,7 +6,7 @@
 # This source code is licensed under the license found in the
 # LICENSE file in the root directory of this source tree.
 
-data_path=./data/algo_seq_3var/
+data_path=./data/corsair/algo_seq_3var/
 
 # Generate data if needed
 python ./data/gen_data_algo_seq.py --variables 3 --path $data_path
