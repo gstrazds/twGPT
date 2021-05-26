@@ -1,0 +1,5 @@
+checkpoints/
+data/algo_seq_3var/
+data/algo_seq_5var/
+__pycache__/
+
