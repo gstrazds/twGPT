@@ -222,7 +222,8 @@ def train(
                 else:
                     # randomize offset to reduce overfitting
                     train_pos = random.randrange(args.mem_sz)
-                h_cache = model.module.init_hid_cache(data.size(0))
+                h_cache = model.module.init_hid_cache(data.size(0))  # arg: batch_sz;
+                # NOTE: init_hid_cache for TrXL returns list of Tensors: size=(bsz,attn_lim, hid_sz)
 
     if pbar:
         pbar.close()
