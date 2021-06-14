@@ -162,6 +162,7 @@ def get_data(
     logger.print(
         "Dictionary contains %d words (including the unk token)" % args.vocab_sz
     )
+    # corpus.dictionary.__check__()
 
     train_data = batchify(corpus.train, args.batch_sz)
     val_data = batchify(corpus.valid, args.test_batch_sz)

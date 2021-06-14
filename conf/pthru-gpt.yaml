@@ -25,8 +25,8 @@ data:
   test_file: ${cwd_path}/mingpt-test-all.pthru
   tokenizer_file: ${cwd_path}/ftwc_tokenizer.json
   num_workers: 8
-  train_filtering: cmd_tokens
-  eval_filtering: cmd_tokens
+  train_filtering: cmd_prompts  #cmd_tokens
+  eval_filtering: cmd_tokens  #cmd_prompts   #cmd_tokens
 
 gpt:
   block_size: 128  # spatial extent of the model for its context
@@ -42,7 +42,7 @@ trainer:
   batch_size: 192
   max_epochs: 6
   learning_rate: 6e-4
-  val_check_interval: 0.2
+  val_check_interval: 0.5
   patience: 25
   save_top_k: 25
   limit_val_batches: 10000  # this should cover all of our current validation set (but maybe not the test set?)
