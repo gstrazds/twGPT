@@ -8,20 +8,19 @@ from torch.nn import functional as F
 
 import math
 from torch.utils.data import Dataset
-
+from datasets import load_dataset
 
 CMD_START_TOKEN = '>>>['
 CMD_END_TOKEN = ']<<<'
 GAME_START_CMD = 'start'
 
 
-
 def _span_len(span):
     return span[1]-span[0]+1
 
 class PlaythroughDataset(Dataset):
-    TARGET_CMD_TOKENS = "cmd_tokens"
-    TARGET_CMD_PROMPTS = "cmd_prompts"
+    TARGET_CMD_TOKENS = "cmd_tokens"     # one data sample per cmd token of each step of each game (ending on each token)
+    TARGET_CMD_PROMPTS = "cmd_prompts"   # one data sample per step of each game (ending on the cmd_end token)
 
     def __init__(self, data, block_size, cmd_markers: Tuple[int,int] = None, game_start_tok:int = None, pad_tok:int=0, span_filtering=None):
         self.block_size = block_size
@@ -157,8 +156,10 @@ class PlaythroughDataset(Dataset):
                 for step in range(self.get_num_steps(igame)):
                     # from token spans that end with a cmd sequence
                     if self.span_filtering == PlaythroughDataset.TARGET_CMD_PROMPTS:
+                        # one data sample per step of each game
                         self._add_to_index((igame, step))
                     else:  # self.span_filtering == PlaythroughDataset.TARGET_CMD_TOKENS  # return a record ending at each tokan
+                        # one data sample per cmd token of each step of each game
                         span, cmd0_len, cmd1_len = self.get_token_idxs(igame, 0, step, inclusive=(True,True))
                         game_start_idx = span[0]  # idx of start of this game
                         # if _span_len(span) >= self.block_size:
@@ -202,7 +203,7 @@ class PlaythroughDataset(Dataset):
                 start_idx, end_idx = self._index_by_idx[idx]
                 return self.get_left_padded_block(start_idx, end_idx)
             #else:
-            print("WARNING: using legacy version of self._index", idx, self._index[idx])
+            assert False, f"UNSUPPORTED span_filtering={self.span_filtering} ({idx}:{self._index[idx]})")
             idx = self._index_by_idx[idx]
         chunk = self.data[idx:idx + self.block_size + 1]
         """
@@ -336,6 +337,7 @@ from torch.utils.data import DataLoader, random_split
 
 from tokenizers import Tokenizer
 
+
 class PlaythroughDataModule(LightningDataModule):
     """
     """
@@ -449,3 +451,43 @@ class PlaythroughDataModule(LightningDataModule):
         )
         return loader
 
+
+
+# class PthruDatasetHF(LightningDataModule):
+# """ An example based on https://github.com/pietrolesci/nlp_datamodule/blob/main/nb.ipynb """
+#     def setup(self, stage=None):
+#         if stage == 'fit' or stage is None:
+#             ds = load_dataset("imdb", split="train")
+#             self.num_classes = ds.features["label"].num_classes
+#             ds = ds.map(self.pipeline, fn_kwargs={"stage": stage})
+#
+#             # only after the text is clean I want to build vocab
+#             if self.vocab is None:
+#                 self.build_vocab(ds["text"])
+#             ds = ds.map(self.numericalization, fn_kwargs={"max_len": self.max_len, "pad": self.word2index["<pad>"]})
+#             ds = ds.train_test_split(test_size=.2)
+#
+#             self.train_ds = ds["train"]
+#             self.val_ds = ds["test"]
+#             self.train_ds.set_format(type='torch', columns=['text', 'label'])
+#             self.val_ds.set_format(type='torch', columns=['text', 'label'])
+#
+#         if stage == 'test':
+#             self.test_ds = load_dataset("imdb", split="test")
+#             self.test_ds = self.test_ds.map(self.pipeline, fn_kwargs={"stage": stage})
+#             self.test_ds.set_format(type='torch', columns=['text', 'label'])
+#
+#     def train_dataloader(self):
+#         return DataLoader(self.train_ds, batch_size=self.batch_size, collate_fn=self.collate_fn)
+#
+#     def validation_dataloader(self):
+#         return DataLoader(self.validation_ds, batch_size=self.batch_size, collate_fn=self.collate_fn)
+#
+#     def test_dataloader(self):
+#         return DataLoader(self.test_ds, batch_size=self.batch_size, collate_fn=self.collate_fn)
+#
+#     @staticmethod
+#     def collate_fn(batches):
+#         x = torch.stack([batch["text"] for batch in batches]).float()
+#         y = torch.stack([batch["label"] for batch in batches])
+#         return x, y
