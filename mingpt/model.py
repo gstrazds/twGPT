@@ -214,7 +214,7 @@ class GPTLitModule(pl.LightningModule):
 
     def validation_step(self, batch, batch_idx):
         if len(batch) == 3:
-            x, y, _unused__pad_len = batch
+            x, y, _unused_cmd_pos = batch
         else:
             assert len(batch) == 2, "Expecting each training batch to be a tuple of x,y,(padding) "+int(len(batch))
             x, y = batch
@@ -252,7 +252,8 @@ class GPTLitModule(pl.LightningModule):
     #     return result
 
     def sample_ahead(self, x, n_samples, temperature=1.0, randsampling=False, top_k=None):
-        x_in = x[None, ...]
+        x_in = x[None, ...]  # x.unsqueeze(0) -- increases tensor rank from 1 to 2 by adding a new dimension 0
+                             # (consisting of just one row = the original tensor[which, in this case, was a vector])
         preds = sample(self.model, self.hparams.gpt.block_size, x_in, steps=n_samples, temperature=temperature, sample=randsampling, top_k=top_k)
         # print(f"sample_ahead: preds.size={preds.size()}")
         return preds.detach()[0]
@@ -340,10 +341,23 @@ def eval_predict_cmd_tokens(trainer, pl_module:GPTLitModule, dataset, tokenizer=
             # print(f"get_token_idxs(igame={igame}, 0, end_step={istep})  {_span_debug}")
             # print(dataset.data[_span_debug[0]:_span_debug[1]+1])
             x, y, cmd_start_pos = dataset.get_cmd_prompt_for_gamestep(igame, istep, continuation=-1)
+            # print( x[cmd_start_pos].item() )
+
+            if dataset.span_filtering == 'cmd_prompts':
+                i_end_of_cmd = len(x)-1
+                for i in range(cmd_start_pos, len(x)):
+                    if x[i].item() == dataset.cmd_end:
+                        # print("len cmd=", i-cmd_start_pos)
+                        i_end_of_cmd = i
+                        break
+                cmd_len = i_end_of_cmd-cmd_start_pos
             cmd_start_pos = cmd_start_pos.to(pl_module.device)
             x = x.to(pl_module.device)
             y = y.to(pl_module.device)
-            cmd_len = len(x) - int(cmd_start_pos) - 1
+
+            if dataset.span_filtering != 'cmd_prompts':
+                cmd_len = len(x) - int(cmd_start_pos) - 1
+
             x_trunc = x[0:int(cmd_start_pos) + 1]
             y_trunc = y[0:int(cmd_start_pos) + cmd_len]
             # print(f"len(x)={len(x)}, cmd_start_pos={cmd_start_pos}" )
