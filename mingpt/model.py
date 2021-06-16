@@ -214,7 +214,7 @@ class GPTLitModule(pl.LightningModule):
 
     def validation_step(self, batch, batch_idx):
         if len(batch) == 3:
-            x, y, _unused_cmd_pos = batch
+            x, y, cmd_pos = batch
         else:
             assert len(batch) == 2, "Expecting each training batch to be a tuple of x,y,(padding) "+int(len(batch))
             x, y = batch
@@ -250,6 +250,30 @@ class GPTLitModule(pl.LightningModule):
     #     # if self.hparams.classify:
     #     #     result["log"]["test_acc"] = result["log"].pop("val_acc")
     #     return result
+
+    def calc_cmd_acc(self, cmd_start_pos, cmd_len, x_trunc, y_trunc):
+        cmd_start_pos = cmd_start_pos.to(self.device)
+        predicted = self.sample_ahead(x_trunc, n_samples=cmd_len, temperature=1.0, randsampling=False,
+                                           top_k=None)
+        assert len(predicted) == len(y_trunc) + 1, f"{len(predicted)} {len(y_trunc)}"
+        assert predicted[1] == y_trunc[0], f"{predicted[0:5]} {y_trunc[0:5]}"
+        n_matched_torch = int(
+            torch.sum(predicted[-cmd_len:] == y_trunc[-cmd_len:]))  # torch 1.7 has torch.count_nonzero()
+        n_cmd_tokens = int(cmd_len)
+        # y_predicted = predicted.cpu().tolist()
+        # y_ids = y_trunc.detach().cpu().tolist()
+        # assert len(y_predicted) == len(y_ids) + 1, f"{len(y_ids)} {len(y_predicted)}"
+        # assert y_predicted[1] == y_ids[0], f"{y_predicted[0:5]} {y_ids[0:5]}"
+        # n_cmd_tokens = 0
+        # n_matched = 0
+        # if cmd_len > 1:
+        #     for i in range(1, cmd_len + 1):
+        #         n_cmd_tokens += 1
+        #         if y_predicted[-i] == y_ids[-i]:
+        #             n_matched += 1
+        # assert n_matched == n_matched_torch, f"{n_matched} {n_matched_torch}"
+        # assert n_cmd_tokens == cmd_len
+        return n_cmd_tokens, n_matched_torch, predicted
 
     def sample_ahead(self, x, n_samples, temperature=1.0, randsampling=False, top_k=None):
         x_in = x[None, ...]  # x.unsqueeze(0) -- increases tensor rank from 1 to 2 by adding a new dimension 0
@@ -351,13 +375,11 @@ def eval_predict_cmd_tokens(trainer, pl_module:GPTLitModule, dataset, tokenizer=
                         i_end_of_cmd = i
                         break
                 cmd_len = i_end_of_cmd-cmd_start_pos
-            cmd_start_pos = cmd_start_pos.to(pl_module.device)
+
             x = x.to(pl_module.device)
             y = y.to(pl_module.device)
-
             if dataset.span_filtering != 'cmd_prompts':
                 cmd_len = len(x) - int(cmd_start_pos) - 1
-
             x_trunc = x[0:int(cmd_start_pos) + 1]
             y_trunc = y[0:int(cmd_start_pos) + cmd_len]
             # print(f"len(x)={len(x)}, cmd_start_pos={cmd_start_pos}" )
@@ -367,35 +389,12 @@ def eval_predict_cmd_tokens(trainer, pl_module:GPTLitModule, dataset, tokenizer=
             # print(f"len(x_trunc) = {len(x_trunc)}")
             assert x_trunc[int(
                 cmd_start_pos)] == dataset.cmd_start, f"{cmd_start_pos}: {x_trunc[int(cmd_start_pos)]} {x_trunc}"
-            predicted = pl_module.sample_ahead(x_trunc, n_samples=cmd_len, temperature=1.0, randsampling=False,
-                                               top_k=None)
+            n_cmd_tokens, n_matched, predicted = pl_module.calc_cmd_acc(cmd_start_pos, cmd_len, x_trunc, y_trunc)
 
-            assert len(predicted) == len(y_trunc) + 1, f"{len(predicted)} {len(y_trunc)}"
-            assert predicted[1] == y_trunc[0], f"{predicted[0:5]} {y_trunc[0:5]}"
-
-            n_matched_torch = int(
-                torch.sum(predicted[-cmd_len:] == y_trunc[-cmd_len:]))  # torch 1.7 has torch.count_nonzero()
-            n_cmd_tokens = int(cmd_len)
-            # y_predicted = predicted.cpu().tolist()
-            # y_ids = y_trunc.detach().cpu().tolist()
-            # assert len(y_predicted) == len(y_ids) + 1, f"{len(y_ids)} {len(y_predicted)}"
-            # assert y_predicted[1] == y_ids[0], f"{y_predicted[0:5]} {y_ids[0:5]}"
-
-            # n_cmd_tokens = 0
-            # n_matched = 0
-            # if cmd_len > 1:
-            #     for i in range(1, cmd_len + 1):
-            #         n_cmd_tokens += 1
-            #         if y_predicted[-i] == y_ids[-i]:
-            #             n_matched += 1
-            # assert n_matched == n_matched_torch, f"{n_matched} {n_matched_torch}"
-            # assert n_cmd_tokens == cmd_len
-
-            if n_matched_torch == n_cmd_tokens:
+            if n_matched == n_cmd_tokens:
                 full_matches += 1
-            else:  # n_matched_torch != n_cmd_tokens:
+            else:  # n_matched != n_cmd_tokens:
                 n_printed += 1
-                n_matched = n_matched_torch
                 if n_printed < 10 or n_printed % 100 == 0 or igame > dataset.num_games - 3:
                     if rank == 0:
                         print(
@@ -415,5 +414,5 @@ def eval_predict_cmd_tokens(trainer, pl_module:GPTLitModule, dataset, tokenizer=
                             print()
 
             total_cmd_tokens += n_cmd_tokens
-            total_matched += n_matched_torch
+            total_matched += n_matched
     return total_matched, total_cmd_tokens, full_matches, total_cmds
