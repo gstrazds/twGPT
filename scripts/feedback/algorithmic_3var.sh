@@ -16,7 +16,7 @@ python ./data/gen_data_algo_seq.py --variables 3 --path $data_path
 # Number of GPUs available on your machine
 ngpus=2
 
-export PYTHONPATH=$HOME/work/0_magd3/tw13/minGPT
+export PYTHONPATH=..
 
 # Baseline
 #python -m torch.distributed.launch --nproc_per_node=$ngpus main.py \
