@@ -65,6 +65,8 @@ def main(cfg: DictConfig) -> None:
 
     pl_model = GPTLitModule(cfg)
 
+    pl_model.set_cmd_markers(_datamodule.cmd_start_marker, _datamodule.cmd_end_marker)
+
     # pl_model.load_from_checkpoint(checkpoint_path=cfg.cwd_path + "/saved_models/dec18-startofepoch2.ckpt")
 
     print("USING PyTorch Lightning Trainer")

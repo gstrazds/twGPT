@@ -252,6 +252,8 @@ def main(cfg: DictConfig) -> None:
     print("USING PyTorch Lightning")
 
     pl_model = GPTLitModule.load_from_checkpoint(checkpoint_path=cfg.eval.checkpoint)
+    pl_model.set_cmd_markers(_datamodule.cmd_start_marker, _datamodule.cmd_end_marker)
+
     if torch.cuda.is_available() and cfg.gpus is not None:
         # print(cfg.gpus, type(cfg.gpus))
         if isinstance(cfg.gpus, omegaconf.listconfig.ListConfig):
@@ -265,6 +267,9 @@ def main(cfg: DictConfig) -> None:
     _datamodule.train_dataset.print_info("train_dataset")
     _datamodule.validation_dataset.print_info("validation_dataset")
     dataset = _datamodule.validation_dataset
+    if dataset.span_filtering == 'cmd_prompts':
+        print("***** ADJUSTING cfg.data.eval_filtering for backward compatibility *****")
+        pl_model.hparams.data.eval_filtering = 'cmd_prompts'
     if cfg.eval.play_games:
         # for each .pthru file in cfg.eval.pthru_data_dir, play the corresponding game from cfg.eval.games_dir
         # NOTE: the .pthru data is not used, except to select a game name using pathlib.Path(filepath).stem

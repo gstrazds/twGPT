@@ -21,12 +21,12 @@ general:
 data:
   # data_file: ${cwd_path}/tw-cooking-recipe3+take3+cut+go6-Z7L8CvEPsO53iKDg.pthru  #
   data_file: ${cwd_path}/mingpt-training-all.pthru   #gata-train-all.pthru  #
-  val_file: ${cwd_path}/mingpt-valid-all.pthru
-  test_file: ${cwd_path}/mingpt-test-all.pthru
+  val_file:  ${cwd_path}/gata-valid-all.pthru  #mingpt-valid-all.pthru
+  test_file: ${cwd_path}/gata-test-all.pthru #${cwd_path}/mingpt-test-all.pthru
   tokenizer_file: ${cwd_path}/ftwc_tokenizer.json
   num_workers: 8
-  train_filtering: cmd_tokens
-  eval_filtering: cmd_tokens
+  train_filtering: cmd_prompts  #cmd_tokens
+  eval_filtering: cmd_prompts  #cmd_tokens  #cmd_prompts   #cmd_tokens
 
 gpt:
   block_size: 128  # spatial extent of the model for its context
@@ -42,7 +42,7 @@ trainer:
   batch_size: 192
   max_epochs: 6
   learning_rate: 6e-4
-  val_check_interval: 0.2
+  val_check_interval: 0.5
   patience: 25
   save_top_k: 25
   limit_val_batches: 10000  # this should cover all of our current validation set (but maybe not the test set?)
@@ -57,7 +57,9 @@ trainer:
 
 eval:
 #  checkpoint: ${cwd_path}/saved_models/instrgpt-epoch=4-step=1314-train_loss_step=0.125-val_loss=0.231.ckpt
-  checkpoint: ${cwd_path}/saved_models/12-31/mingpt-epoch=1-step=1469-train_loss_step=0.197-val_loss=0.662.ckpt  # 84.2 % (win 27/124)
+#  checkpoint: ${cwd_path}/saved_models/12-31/mingpt-epoch=1-step=1469-train_loss_step=0.197-val_loss=0.662.ckpt  # 84.2 % (win 27/124)
+  checkpoint: ${cwd_path}/saved_models/2021-01-04_16-24-29/instrgpt-epoch=4-step=1655-train_loss_step=0.129-val_loss=0.258.ckpt  #
+  #instrgpt-epoch=4-step=3380-train_loss_step=0.155-val_loss=0.920.ckpt # 88.29%
   #instrgpt-epoch=4-step=3380-train_loss_step=0.155-val_loss=0.920.ckpt # 88.29%
   # mingpt-epoch=02-step=01616-val_loss=0.66.ckpt  # 83.6 % (win 29/124)
   # mingpt-epoch=2-step=1616-train_loss_step=0.199-val_loss=0.662.ckpt  # 83.6

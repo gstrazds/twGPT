@@ -16,7 +16,7 @@ from torch.nn import functional as F
 
 import pytorch_lightning as pl
 
-from .utils import sample
+from .utils import sample, tokid_from_logits
 
 
 logger = logging.getLogger(__name__)
@@ -109,6 +109,8 @@ class GPTLitModule(pl.LightningModule):
     def __init__(self, config):
         super().__init__()
         self.save_hyperparameters(config)
+        self.cmd_start_marker = None   # need to call set_cmd_markers() before running validation_step()
+        self.cmd_end_marker = None
 
         mconf = GPTConfig(**config.gpt)    # n_layer=8, n_head=8, n_embd=512)
         self.model = GPT(mconf)
@@ -213,12 +215,13 @@ class GPTLitModule(pl.LightningModule):
 #             lr = config.learning_rate
 
     def validation_step(self, batch, batch_idx):
+        batch_cmd_pos = None
         if len(batch) == 3:
-            x, y, _unused__pad_len = batch
+            batch_x, batch_y, batch_cmd_pos = batch
         else:
             assert len(batch) == 2, "Expecting each training batch to be a tuple of x,y,(padding) "+int(len(batch))
-            x, y = batch
-        y_hat, loss = self.model(x, y)
+            batch_x, batch_y = batch
+        y_hat, loss = self.model(batch_x, batch_y)
 
         # # 1. calculate loss
         # loss = F.cross_entropy(y_hat, y)
@@ -226,6 +229,34 @@ class GPTLitModule(pl.LightningModule):
         # 2. log `val_loss`
         self.log('val_loss', loss, on_step=True, on_epoch=True, prog_bar=True)
         metrics = {'val_loss': loss} #, 'val_acc': acc}
+
+        n_cmd_tokens = 0
+        n_matched_tokens = 0
+        n_cmds = 0
+        n_matched_cmds = 0
+        if self.hparams.data.eval_filtering == 'cmd_prompts':
+            assert batch_cmd_pos is not None
+            #print(f"y_hat.shape={y_hat.shape}")
+            for x, y, cmd_pos, pred in zip(batch_x, batch_y, batch_cmd_pos, y_hat):
+                #print(f"calc_cmd_acc: len(x,y)=({len(x),len(y)})\n   x={x}\n  y={y}" )
+                #print(f"pred.shape={pred.shape}")
+
+                # TODO: use y_hat instead of recomputing predicted in calc_cmd_acc()
+                n_toks, n_matched, predicted, y_trunc = \
+                    self.calc_cmd_acc(int(cmd_pos), x, y, predicted=pred)
+                n_cmd_tokens += n_toks
+                n_matched_tokens += n_matched
+                n_cmds += 1
+                if n_matched == n_toks:
+                    n_matched_cmds += 1
+        self.log('n_cmd_toks', n_cmd_tokens, on_step=True, on_epoch=True, prog_bar=False)
+        metrics['n_cmd_toks'] = n_cmd_tokens
+        self.log('n_toks_matched', n_matched_tokens, on_step=True, on_epoch=True, prog_bar=False)
+        metrics['n_toks_matched'] = n_matched_tokens
+        self.log('n_cmds', n_cmds, on_step=True, on_epoch=True, prog_bar=True)
+        metrics['n_cmds'] = n_cmds
+        self.log('cmd_exact_match', n_matched_cmds, on_step=True, on_epoch=True, prog_bar=True)
+        metrics['cmd_exact_match'] = n_matched_cmds
         return metrics
 
     def validation_epoch_end(self, outs):
@@ -251,8 +282,75 @@ class GPTLitModule(pl.LightningModule):
     #     #     result["log"]["test_acc"] = result["log"].pop("val_acc")
     #     return result
 
+    def set_cmd_markers(self, cmd_start_marker, cmd_end_marker):
+        self.cmd_start_marker = cmd_start_marker
+        self.cmd_end_marker = cmd_end_marker
+
+    def calc_cmd_acc(self, cmd_start_pos:int, x, y, predicted=None):
+        assert self.cmd_start_marker is not None, "Setup ERROR: Need to call pl_module.set_cmd_markers()"
+        assert self.cmd_end_marker is not None, "Setup ERROR: Need to call pl_module.set_cmd_markers()"
+
+        if self.hparams.data.eval_filtering == 'cmd_prompts':
+            i_end_of_cmd = len(x) - 1
+            for i in range(cmd_start_pos, len(x)):
+                if x[i].item() == self.cmd_end_marker:
+                    # print("len cmd=", i-cmd_start_pos)
+                    i_end_of_cmd = i
+                    break
+            cmd_len = i_end_of_cmd - cmd_start_pos
+
+        x = x.to(self.device)
+        y = y.to(self.device)
+        if self.hparams.data.eval_filtering != 'cmd_prompts':
+            cmd_len = len(x) - cmd_start_pos - 1
+        x_trunc = x[0:int(cmd_start_pos) + 1]
+        y_trunc = y[0:int(cmd_start_pos) + cmd_len]
+        # print(f"len(x)={len(x)}, cmd_start_pos={cmd_start_pos}" )
+        # print("cmd_len", cmd_len)
+        # print("x:", x)
+        # print("x_trunc:", x_trunc)
+        # print(f"len(x_trunc) = {len(x_trunc)}")
+        assert x_trunc[int(cmd_start_pos)]\
+               == self.cmd_start_marker, f"{cmd_start_pos}: {x_trunc[cmd_start_pos]} {x_trunc}"
+
+        if predicted is None:
+            predict_out = self.sample_ahead(x_trunc, n_samples=cmd_len, temperature=1.0, randsampling=False,
+                                           top_k=None)
+        else:
+            out = []
+            for x_ in x[0:cmd_start_pos+1]:
+                out.append(x_)    # TODO: do this more efficiently with one concat (or refactor to not do it at all)
+            for logits in predicted[cmd_start_pos:cmd_start_pos+cmd_len]:
+                #print("SHAPE of logits =", logits.shape)
+                out.append(tokid_from_logits(logits).squeeze(0))
+            #print(out)
+            predict_out = torch.stack(out)
+        assert len(predict_out) == len(y_trunc) + 1, f"{len(predict_out)} {len(y_trunc)}"
+        # the following assertion is a sanity check to confirm that x_trunc and y_trunc are aligned correctly
+        if cmd_start_pos > 1:  # at start-of-game we have no context, might predict incorrectly
+            assert predict_out[1] == y_trunc[0], f"{predict_out[0:5]} {y_trunc[0:5]}"
+        n_matched = int(
+            torch.sum(predict_out[-cmd_len:] == y_trunc[-cmd_len:]))  # torch 1.7 has torch.count_nonzero()
+        # n_cmd_tokens = int(cmd_len)
+
+        # y_predicted = predicted.cpu().tolist()
+        # y_ids = y_trunc.detach().cpu().tolist()
+        # assert len(y_predicted) == len(y_ids) + 1, f"{len(y_ids)} {len(y_predicted)}"
+        # assert y_predicted[1] == y_ids[0], f"{y_predicted[0:5]} {y_ids[0:5]}"
+        # n_cmd_tokens = 0
+        # n_matched = 0
+        # if cmd_len > 1:
+        #     for i in range(1, cmd_len + 1):
+        #         n_cmd_tokens += 1
+        #         if y_predicted[-i] == y_ids[-i]:
+        #             n_matched += 1
+        # assert n_matched == n_matched_torch, f"{n_matched} {n_matched_torch}"
+        # assert n_cmd_tokens == cmd_len
+        return cmd_len, n_matched, predict_out, y_trunc
+
     def sample_ahead(self, x, n_samples, temperature=1.0, randsampling=False, top_k=None):
-        x_in = x[None, ...]
+        x_in = x[None, ...]  # x.unsqueeze(0) -- increases tensor rank from 1 to 2 by adding a new dimension 0
+                             # (consisting of just one row = the original tensor[which, in this case, was a vector])
         preds = sample(self.model, self.hparams.gpt.block_size, x_in, steps=n_samples, temperature=temperature, sample=randsampling, top_k=top_k)
         # print(f"sample_ahead: preds.size={preds.size()}")
         return preds.detach()[0]
@@ -291,7 +389,8 @@ class GPT(nn.Module):
 
     def forward(self, idx, targets=None):
         b, t = idx.size()
-        assert t <= self.block_size, "Cannot forward, model block size is exhausted."
+        if t > self.block_size:
+            assert False, f"Cannot forward, model block size is exhausted: {t} ! <= {self.block_size}"
 
         # forward the GPT model
         token_embeddings = self.tok_emb(idx) # each index maps to a (learnable) vector
@@ -339,58 +438,24 @@ def eval_predict_cmd_tokens(trainer, pl_module:GPTLitModule, dataset, tokenizer=
             # print(f"get_token_idxs(igame={igame}, 0, end_step={istep})  {_span_debug}")
             # print(dataset.data[_span_debug[0]:_span_debug[1]+1])
             x, y, cmd_start_pos = dataset.get_cmd_prompt_for_gamestep(igame, istep, continuation=-1)
-            cmd_start_pos = cmd_start_pos.to(pl_module.device)
-            x = x.to(pl_module.device)
-            y = y.to(pl_module.device)
-            cmd_len = len(x) - int(cmd_start_pos) - 1
-            x_trunc = x[0:int(cmd_start_pos) + 1]
-            y_trunc = y[0:int(cmd_start_pos) + cmd_len]
-            # print(f"len(x)={len(x)}, cmd_start_pos={cmd_start_pos}" )
-            # print("cmd_len", cmd_len)
-            # print("x:", x)
-            # print("x_trunc:", x_trunc)
-            # print(f"len(x_trunc) = {len(x_trunc)}")
-            assert x_trunc[int(
-                cmd_start_pos)] == dataset.cmd_start, f"{cmd_start_pos}: {x_trunc[int(cmd_start_pos)]} {x_trunc}"
-            predicted = pl_module.sample_ahead(x_trunc, n_samples=cmd_len, temperature=1.0, randsampling=False,
-                                               top_k=None)
+            # print( x[cmd_start_pos].item() )
 
-            assert len(predicted) == len(y_trunc) + 1, f"{len(predicted)} {len(y_trunc)}"
-            assert predicted[1] == y_trunc[0], f"{predicted[0:5]} {y_trunc[0:5]}"
+            cmd_len, n_matched, predicted, y_trunc = pl_module.calc_cmd_acc(int(cmd_start_pos), x, y)
 
-            n_matched_torch = int(
-                torch.sum(predicted[-cmd_len:] == y_trunc[-cmd_len:]))  # torch 1.7 has torch.count_nonzero()
-            n_cmd_tokens = int(cmd_len)
-            # y_predicted = predicted.cpu().tolist()
-            # y_ids = y_trunc.detach().cpu().tolist()
-            # assert len(y_predicted) == len(y_ids) + 1, f"{len(y_ids)} {len(y_predicted)}"
-            # assert y_predicted[1] == y_ids[0], f"{y_predicted[0:5]} {y_ids[0:5]}"
-
-            # n_cmd_tokens = 0
-            # n_matched = 0
-            # if cmd_len > 1:
-            #     for i in range(1, cmd_len + 1):
-            #         n_cmd_tokens += 1
-            #         if y_predicted[-i] == y_ids[-i]:
-            #             n_matched += 1
-            # assert n_matched == n_matched_torch, f"{n_matched} {n_matched_torch}"
-            # assert n_cmd_tokens == cmd_len
-
-            if n_matched_torch == n_cmd_tokens:
+            if n_matched == cmd_len:
                 full_matches += 1
-            else:  # n_matched_torch != n_cmd_tokens:
+            else:  # n_matched != n_cmd_tokens:
                 n_printed += 1
-                n_matched = n_matched_torch
                 if n_printed < 10 or n_printed % 100 == 0 or igame > dataset.num_games - 3:
                     if rank == 0:
                         print(
-                            f" {igame}.{istep}  ...   \t{n_matched} / {n_cmd_tokens}   \tacc: {n_matched / n_cmd_tokens:4f}")
+                            f" {igame}.{istep}  ...   \t{n_matched} / {cmd_len}   \tacc: {n_matched / cmd_len:4f}")
                         if tokenizer:
                             y_predicted = predicted.cpu().tolist()
                             y_ids = y_trunc.detach().cpu().tolist()
 
                             # show_sample(tokenizer, f"{igame}.{istep}", y_predicted, y_ids, n_sampled=n_cmd_tokens)
-                            n_sampled = n_cmd_tokens
+                            n_sampled = cmd_len
                             _idx = f"{igame}.{istep}"
                             print(f"({_idx})", tokenizer.decode(y_ids[0:6]), '[....]',
                                   tokenizer.decode(y_ids[-5 - n_sampled:-n_sampled]), "|",
@@ -399,6 +464,6 @@ def eval_predict_cmd_tokens(trainer, pl_module:GPTLitModule, dataset, tokenizer=
                                   tokenizer.decode(y_predicted[-5 - n_sampled:]))
                             print()
 
-            total_cmd_tokens += n_cmd_tokens
-            total_matched += n_matched_torch
+            total_cmd_tokens += cmd_len
+            total_matched += n_matched
     return total_matched, total_cmd_tokens, full_matches, total_cmds

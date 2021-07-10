@@ -1,13 +1,19 @@
 #!/usr/bin/env python
 # coding: utf-8
 from typing import List, Dict, Optional, Any, Tuple
+import random
 import numpy as np
 import torch
 import torch.nn as nn
 from torch.nn import functional as F
 
-import math
-from torch.utils.data import Dataset
+from torch.utils.data import Dataset, DataLoader
+from torch.nn.utils.rnn import pad_sequence
+
+from tokenizers import Tokenizer
+from datasets import load_dataset
+
+from pytorch_lightning import LightningDataModule
 
 
 CMD_START_TOKEN = '>>>['
@@ -15,16 +21,17 @@ CMD_END_TOKEN = ']<<<'
 GAME_START_CMD = 'start'
 
 
-
 def _span_len(span):
     return span[1]-span[0]+1
 
 class PlaythroughDataset(Dataset):
-    TARGET_CMD_TOKENS = "cmd_tokens"
-    TARGET_CMD_PROMPTS = "cmd_prompts"
+    TARGET_CMD_TOKENS = "cmd_tokens"     # one data sample per cmd token of each step of each game (ending on each token)
+    TARGET_CMD_PROMPTS = "cmd_prompts"   # one data sample per step of each game (ending on the cmd_end token)
 
-    def __init__(self, data, block_size, cmd_markers: Tuple[int,int] = None, game_start_tok:int = None, pad_tok:int=0, span_filtering=None):
+    def __init__(self, data, block_size, cmd_markers: Tuple[int,int] = None, game_start_tok:int = None,
+                 pad_tok:int=0, span_filtering=None, batch_size=1):
         self.block_size = block_size
+        self.batch_size = batch_size
         self.data = np.array(data)  # make a copy of the given list of token ids
         self.cmd_spans = None
         self.game_spans = []  # each span (index in cmd_spans of game start, index into cmd_spans of start of next game)
@@ -157,8 +164,10 @@ class PlaythroughDataset(Dataset):
                 for step in range(self.get_num_steps(igame)):
                     # from token spans that end with a cmd sequence
                     if self.span_filtering == PlaythroughDataset.TARGET_CMD_PROMPTS:
+                        # one data sample per step of each game
                         self._add_to_index((igame, step))
                     else:  # self.span_filtering == PlaythroughDataset.TARGET_CMD_TOKENS  # return a record ending at each tokan
+                        # one data sample per cmd token of each step of each game
                         span, cmd0_len, cmd1_len = self.get_token_idxs(igame, 0, step, inclusive=(True,True))
                         game_start_idx = span[0]  # idx of start of this game
                         # if _span_len(span) >= self.block_size:
@@ -196,13 +205,14 @@ class PlaythroughDataset(Dataset):
 
             if self.span_filtering == PlaythroughDataset.TARGET_CMD_PROMPTS:
                 igame, istep = self._index_by_idx[idx]
-                return self.get_cmd_prompt_for_gamestep(igame, istep)
+                return self.get_cmd_prompt_for_gamestep(igame, istep, continuation=-10) #+random extra len from 0 to 10
 
             elif self.span_filtering == PlaythroughDataset.TARGET_CMD_TOKENS:
                 start_idx, end_idx = self._index_by_idx[idx]
-                return self.get_left_padded_block(start_idx, end_idx)
+                #return self.get_left_padded_block(start_idx, end_idx)
+                return self.get_right_padded_block(start_idx, end_idx)
             #else:
-            print("WARNING: using legacy version of self._index", idx, self._index[idx])
+            assert False, f"UNSUPPORTED span_filtering={self.span_filtering} ({idx}:{self._index[idx]})"
             idx = self._index_by_idx[idx]
         chunk = self.data[idx:idx + self.block_size + 1]
         """
@@ -263,27 +273,30 @@ class PlaythroughDataset(Dataset):
         return self._prompt_for_cmd_span(cmd_span[0], cmd_span[1], game_start_idx=gamestep_span[0],
                                          continuation=continuation, fill_id=fill_id, block_size=block_size)
 
-    def get_cmd_prompt(self, icmd:int, continuation=-1, fill_id=None):
-        """ returns a span that ends with the ith cmd_start marker
-        (of length block_size, or less if the cmd marker position is less than block_size).
-        if continuation > 0, span length is extended, and x_out is padded with fill_id
-        if continuation < 0, continuation is auto-adjusted to a length up to and including corresponding cmd_end_marker
-        """
-        if self.cmd_spans is None or icmd >= len(self.cmd_spans):
-            return None, None
-        cmd_start_idx, cmd_end_idx = self.cmd_spans[icmd]  # span includes the start,end markers
-        if fill_id is None:
-            fill_id = self.pad_tok
-        return self._prompt_for_cmd_span(cmd_start_idx, cmd_end_idx, continuation=continuation, fill_id=fill_id)
+    # def get_cmd_prompt(self, icmd:int, continuation=-1, fill_id=None):
+    #     """ returns a span that ends with the ith cmd_start marker
+    #     (of length block_size, or less if the cmd marker position is less than block_size).
+    #     if continuation > 0, span length is extended, and x_out is padded with fill_id
+    #     if continuation < 0, continuation is auto-adjusted to a length up to and including corresponding cmd_end_marker
+    #     """
+    #     if self.cmd_spans is None or icmd >= len(self.cmd_spans):
+    #         return None, None
+    #     cmd_start_idx, cmd_end_idx = self.cmd_spans[icmd]  # span includes the start,end markers
+    #     if fill_id is None:
+    #         fill_id = self.pad_tok
+    #     return self._prompt_for_cmd_span(cmd_start_idx, cmd_end_idx, continuation=continuation, fill_id=fill_id)
 
     def _prompt_for_cmd_span(self, cmd_start_idx, cmd_end_idx, game_start_idx=0,
                              continuation=-1, fill_id=None, block_size=None):
         if fill_id is None:
             fill_id = self.pad_tok
-        if block_size <= 0 or block_size is None:
+        if block_size is None or block_size <= 0:
             block_size = self.block_size
-        if continuation < 0:
-            continuation = cmd_end_idx - cmd_start_idx   # cmd_len
+        if continuation == -1:  # -1 by default
+            continuation = cmd_end_idx - cmd_start_idx  # cmd_len
+        elif continuation < -1:
+            continuation = cmd_end_idx - cmd_start_idx + random.randint(0, -continuation)  # cmd_len + some extra randomization
+
         cmd_start_pos = block_size-1   # where in the output buffer the start marker will be
         prompt_len = block_size
         start_idx = cmd_start_idx - block_size + 1
@@ -294,10 +307,27 @@ class PlaythroughDataset(Dataset):
 
         output_len = prompt_len + continuation
         x_len = output_len - cmd_start_pos   # NOTE: can be negative e.g. if output_len is shorter than block_size
+
         if start_idx + x_len >= len(self.data):  # NOTE: numpy automatically truncates slices at max pos
             x_len = len(self.data) - start_idx
-        x_out = np.full(output_len, fill_value=fill_id)
-        y_out = np.full(output_len, fill_value=fill_id)
+
+        # right-padding to block_size if batch_size > 1
+        if self.span_filtering == PlaythroughDataset.TARGET_CMD_PROMPTS and (self.batch_size is not None and self.batch_size > 1):
+            x_out = np.full(self.block_size, fill_value=fill_id)
+            y_out = np.full(self.block_size, fill_value=fill_id)
+            if output_len > self.block_size:
+                # adjust so that we output exactly block_size
+                diff_len = output_len - self.block_size
+                output_len -= diff_len  # = self.block_size
+                cmd_start_pos -= diff_len
+                start_idx += diff_len
+            elif output_len < self.block_size:
+                diff_len = self.block_size - output_len
+                output_len = self.block_size
+                x_len += diff_len
+        else:
+            x_out = np.full(output_len, fill_value=fill_id)
+            y_out = np.full(output_len, fill_value=fill_id)
         # print(f"({cmd_start_idx,cmd_end_idx}) output_len={output_len} start_idx={start_idx} cmd_start_pos={cmd_start_pos} x_len={x_len}")
         x_out[:output_len] = self.data[start_idx:start_idx+cmd_start_pos+x_len]
         y_out[:output_len] = self.data[start_idx+1:start_idx+cmd_start_pos+x_len+1]
@@ -331,10 +361,32 @@ class PlaythroughDataset(Dataset):
         # print(x_out)
         return torch.tensor(x_out, dtype=torch.long), torch.tensor(y_out, dtype=torch.long), torch.tensor(pad_length)
 
-from pytorch_lightning import LightningDataModule
-from torch.utils.data import DataLoader, random_split
-
-from tokenizers import Tokenizer
+    def get_right_padded_block(self, start_idx, end_idx, fill_id=None):
+        if fill_id is None:
+            fill_id = self.pad_tok
+        if end_idx >= len(self.data):
+            # assert False, "THIS SHOULD NOT HAPPEN!"
+            print(f"ASSERTION FAILURE get_right_padded_block({start_idx},{end_idx}) data len={len(self.data)}!!!")
+            end_idx = len(self.data)-1
+            start_idx = end_idx - self.block_size+1
+        if start_idx < 0:
+            start_idx = 0;
+        output_len = end_idx - start_idx + 1
+        if output_len > self.block_size:
+            print(f"WARNING (UNEXPECTED!): get_right_padded_block({start_idx},{end_idx}) will truncate block to len={self.block_size}")
+            start_idx += output_len - self.block_size
+            output_len = self.block_size
+        pad_length = self.block_size - output_len
+        if pad_length > 0:    # output_len < self.block_size:
+            x_out = np.full(self.block_size, fill_value=fill_id)
+            y_out = np.full(self.block_size, fill_value=fill_id)
+            x_out[:output_len] = self.data[start_idx:start_idx+output_len]
+            y_out[:output_len] = self.data[start_idx+1:start_idx+1+output_len]
+        else:
+            x_out = self.data[start_idx:start_idx+output_len]
+            y_out = self.data[start_idx+1:start_idx+1+output_len]
+        # print(x_out)
+        return torch.tensor(x_out, dtype=torch.long), torch.tensor(y_out, dtype=torch.long), torch.tensor(pad_length)
 
 class PlaythroughDataModule(LightningDataModule):
     """
@@ -409,14 +461,19 @@ class PlaythroughDataModule(LightningDataModule):
         self.train_dataset = PlaythroughDataset(encoded_data.ids, self.block_size,
                                                 cmd_markers=cmd_markers,
                                                 game_start_tok=self.game_start_tok,
-                                                span_filtering=self.train_filtering)  #PlaythroughDataset.TARGET_CMD_TOKENS)
+                                                span_filtering=self.train_filtering,  #PlaythroughDataset.TARGET_CMD_TOKENS)
+                                                batch_size=self.batch_size)
 
         if self.val_file:
             eval_encoded = self.read_and_encode(self.val_file)
+            batch_size = self.batch_size
+            # if self.eval_filtering == PlaythroughDataset.TARGET_CMD_PROMPTS:
+            #     batch_size = 1
             self.validation_dataset = PlaythroughDataset(eval_encoded.ids, self.block_size,
                                                          cmd_markers=cmd_markers,
                                                          game_start_tok=self.game_start_tok,
-                                                         span_filtering=self.eval_filtering)   #PlaythroughDataset.TARGET_CMD_TOKENS)
+                                                         span_filtering=self.eval_filtering,     #PlaythroughDataset.TARGET_CMD_TOKENS)
+                                                         batch_size=batch_size)
                                         #    span_filtering = PlaythroughDataset.TARGET_CMD_PROMPTS)  # eval accuracy
 
     def train_dataloader(self):
@@ -434,14 +491,14 @@ class PlaythroughDataModule(LightningDataModule):
         if not self.validation_dataset:
             return None
 
-        if self.validation_dataset.span_filtering == PlaythroughDataset.TARGET_CMD_PROMPTS:
-            batch_size = 1
-        else:
-            batch_size = self.batch_size
+        # if self.validation_dataset.span_filtering == PlaythroughDataset.TARGET_CMD_PROMPTS:
+        #     batch_size = 1
+        # else:
+        #     batch_size = self.batch_size
 
         loader = DataLoader(
             self.validation_dataset,
-            batch_size=batch_size,
+            batch_size=self.validation_dataset.batch_size,
             shuffle=False,
             num_workers=self.num_workers,
             drop_last=True,
@@ -449,3 +506,55 @@ class PlaythroughDataModule(LightningDataModule):
         )
         return loader
 
+
+    def pad_collate(self, batch):
+        (xx, yy, cmd_start_pos) = zip(*batch)
+        x_len = [len(x) for x in xx]
+        y_len = [len(y) for y in yy]
+
+        xx_pad = pad_sequence(xx, batch_first=True, padding_value=self.pad_tok)
+        yy_pad = pad_sequence(yy, batch_first=True, padding_value=self.pad_tok)
+        for i in len(cmd_start_pos):
+            assert x_len[i] == y_len[i], f"{x_len} {y_len}"
+            assert xx_pad[i,cmd_start_pos[i]].item() == self.cmd_start_marker
+        return xx_pad, yy_pad, cmd_start_pos
+
+
+# class PthruDatasetHF(LightningDataModule):
+# """ An example based on https://github.com/pietrolesci/nlp_datamodule/blob/main/nb.ipynb """
+#     def setup(self, stage=None):
+#         if stage == 'fit' or stage is None:
+#             ds = load_dataset("imdb", split="train")
+#             self.num_classes = ds.features["label"].num_classes
+#             ds = ds.map(self.pipeline, fn_kwargs={"stage": stage})
+#
+#             # only after the text is clean I want to build vocab
+#             if self.vocab is None:
+#                 self.build_vocab(ds["text"])
+#             ds = ds.map(self.numericalization, fn_kwargs={"max_len": self.max_len, "pad": self.word2index["<pad>"]})
+#             ds = ds.train_test_split(test_size=.2)
+#
+#             self.train_ds = ds["train"]
+#             self.val_ds = ds["test"]
+#             self.train_ds.set_format(type='torch', columns=['text', 'label'])
+#             self.val_ds.set_format(type='torch', columns=['text', 'label'])
+#
+#         if stage == 'test':
+#             self.test_ds = load_dataset("imdb", split="test")
+#             self.test_ds = self.test_ds.map(self.pipeline, fn_kwargs={"stage": stage})
+#             self.test_ds.set_format(type='torch', columns=['text', 'label'])
+#
+#     def train_dataloader(self):
+#         return DataLoader(self.train_ds, batch_size=self.batch_size, collate_fn=self.collate_fn)
+#
+#     def validation_dataloader(self):
+#         return DataLoader(self.validation_ds, batch_size=self.batch_size, collate_fn=self.collate_fn)
+#
+#     def test_dataloader(self):
+#         return DataLoader(self.test_ds, batch_size=self.batch_size, collate_fn=self.collate_fn)
+#
+#     @staticmethod
+#     def collate_fn(batches):
+#         x = torch.stack([batch["text"] for batch in batches]).float()
+#         y = torch.stack([batch["label"] for batch in batches])
+#         return x, y
