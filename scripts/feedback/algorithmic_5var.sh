@@ -14,7 +14,7 @@ python data/gen_data_algo_seq.py --variables 5 --path $data_path
 # Number of GPUs available on your machine
 ngpus=2
 
-export PYTHONPATH=$HOME/work/0_magd3/tw13/minGPT
+export PYTHONPATH=..
 
 #python -m torch.distributed.launch --nproc_per_node=$ngpus main.py \
 #    --nepochs 50 --nbatches 1000 --batch-sz 512 --test-batch-sz 32 \
@@ -29,5 +29,6 @@ python -m torch.distributed.launch --nproc_per_node=$ngpus main.py \
     --hid-sz 256 --inner-hid-sz 1024 --mem-sz 64 --nlayers 4 \
     --lr 0.0001 --momentum 0 --dropout 0.2 --optim adam --lr-warmup 1000 \
     --attn-lim 100 --nheads 4 --grad-clip 0.1 --pre-norm \
-    --feedback --checkpoint checkpoints/corsair/corsair2_5var.ckpt --checkpoint-freq 5
+    --feedback \
+    --checkpoint checkpoints/gengo/corsair3_5var.ckpt --checkpoint-freq 10
 
