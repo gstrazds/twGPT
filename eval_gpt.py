@@ -48,7 +48,7 @@ def predict_cmd(pl_module, tokenizer, pthru_so_far: str, failed_cmds: List[str] 
 
     while attempts > 0:
         attempts -= 1
-        predicted = sample_ahead(pl_module.model, x_dev, n_samples=N_AHEAD, temperature=temp, randsampling=sample, top_k=top_k)
+        predicted = pl_module.sample_ahead(x_dev, n_samples=N_AHEAD, temperature=temp, randsampling=sample, top_k=top_k)
         y_predicted = predicted.cpu().tolist()
         print("****** PROMPT:", tokenizer.decode(y_predicted[max(0, len(y_predicted)-20-N_AHEAD):-N_AHEAD]))
 
