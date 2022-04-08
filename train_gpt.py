@@ -9,6 +9,8 @@ from omegaconf import OmegaConf, DictConfig
 
 import pytorch_lightning as pl
 from pytorch_lightning import seed_everything
+# import wandb
+from pytorch_lightning.loggers import WandbLogger
 from pytorch_lightning.callbacks import Callback, EarlyStopping, ModelCheckpoint
 
 from mingpt.pthru_dataset import PlaythroughDataModule
@@ -26,6 +28,9 @@ def main(cfg: DictConfig) -> None:
     print("cwd_path = ", cfg.cwd_path)
 
     seed_everything(cfg.general.random_seed)
+
+# ?   wandb.login()
+# ?   wandb.init(project="tw-mingpt")
 
     start_time = datetime.datetime.now()
     print(f"======================================= train_gpt.py - Start time: {start_time}\n{os.getcwd()}\n")
@@ -102,12 +107,15 @@ def main(cfg: DictConfig) -> None:
 
     callback_list.append(CUDACallback())
 
+    wandb_logger = WandbLogger(project="tw-mingpt")
+
     trainer = pl.Trainer(gpus=cfg.gpus,
                          max_epochs=cfg.trainer.max_epochs,
                          val_check_interval=cfg.trainer.val_check_interval,
                          limit_val_batches=cfg.trainer.limit_val_batches,
                          resume_from_checkpoint=cfg.resume_from_checkpoint,
-                         callbacks=callback_list)
+                         callbacks=callback_list,
+                         logger=wandb_logger)
     trainer.fit(pl_model, _datamodule)
 
     finish_time = datetime.datetime.now()
