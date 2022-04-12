@@ -9,16 +9,16 @@ from omegaconf import OmegaConf, DictConfig
 
 import pytorch_lightning as pl
 from pytorch_lightning import seed_everything
-# import wandb
+import wandb
 from pytorch_lightning.loggers import WandbLogger
 from pytorch_lightning.callbacks import Callback, EarlyStopping, ModelCheckpoint
+from pytorch_lightning.utilities import rank_zero_info
 
 from mingpt.pthru_dataset import PlaythroughDataModule
 from mingpt.char_dataset import CharDataModule
 from mingpt.model import GPTLitModule, eval_predict_cmd_tokens
 from mingpt.callback import CUDACallback
 from mingpt.lr_decay import LearningRateDecayCallback
-
 
 @hydra.main(config_path="conf", config_name="pthru-gpt")
 def main(cfg: DictConfig) -> None:
@@ -107,15 +107,26 @@ def main(cfg: DictConfig) -> None:
 
     callback_list.append(CUDACallback())
 
-    wandb_logger = WandbLogger(project="tw-mingpt")
-
-    trainer = pl.Trainer(gpus=cfg.gpus,
-                         max_epochs=cfg.trainer.max_epochs,
-                         val_check_interval=cfg.trainer.val_check_interval,
-                         limit_val_batches=cfg.trainer.limit_val_batches,
-                         resume_from_checkpoint=cfg.resume_from_checkpoint,
-                         callbacks=callback_list,
-                         logger=wandb_logger)
+    if cfg.use_wandb:
+        if pl_model.is_rank_zero():
+            wandb.init(project="tw-mingpt")
+        wandb_logger = WandbLogger(project="tw-mingpt")
+        trainer = pl.Trainer(gpus=cfg.gpus,
+                             max_epochs=cfg.trainer.max_epochs,
+                             val_check_interval=cfg.trainer.val_check_interval,
+                             limit_val_batches=cfg.trainer.limit_val_batches,
+                             resume_from_checkpoint=cfg.resume_from_checkpoint,
+                             callbacks=callback_list,
+                             strategy='ddp',
+                             logger=wandb_logger)
+    else:
+        trainer = pl.Trainer(gpus=cfg.gpus,
+                             max_epochs=cfg.trainer.max_epochs,
+                             val_check_interval=cfg.trainer.val_check_interval,
+                             limit_val_batches=cfg.trainer.limit_val_batches,
+                             resume_from_checkpoint=cfg.resume_from_checkpoint,
+                             callbacks=callback_list,
+                             strategy='ddp')
     trainer.fit(pl_model, _datamodule)
 
     finish_time = datetime.datetime.now()
@@ -146,11 +157,12 @@ class SamplePredictions(Callback):
                                 eval_predict_cmd_tokens(trainer, pl_module, self.dataset, tokenizer=self.tokenizer)
         cmd_token_acc = n_matched / total_cmd_tokens
         cmd_acc = full_matches / num_cmds
-        print(f"VALIDATION CMD_TOKEN_ACC = {cmd_token_acc:.5f}  CMD_ACC = {cmd_acc:.5f}")
+        rank_zero_info(f"VALIDATION CMD_TOKEN_ACC = {cmd_token_acc:.5f}  CMD_ACC = {cmd_acc:.5f}")
         # (NOT YET SUPPORTED): pl_module.log("val_acc", n_matched / total_cmd_tokens, on_step=False, on_epoch=True, prog_bar=True)
-        pl_module.logger.log_metrics({"cmd_acc": cmd_acc}, step=trainer.global_step)  #n_matched / total_cmd_tokens)
-        pl_module.logger.log_metrics({"tok_acc": cmd_token_acc}, step=trainer.global_step)  #n_matched / total_cmd_tokens)
-        if self.out_dir and (not hasattr(trainer, "rank") or trainer.rank == 0):
+        if pl_module.is_rank_zero():
+            pl_module.logger.log_metrics({"cmd_acc": cmd_acc}, step=trainer.global_step)  #n_matched / total_cmd_tokens)
+            pl_module.logger.log_metrics({"tok_acc": cmd_token_acc}, step=trainer.global_step)  #n_matched / total_cmd_tokens)
+        if self.out_dir:  #(not hasattr(trainer, "rank") or trainer.rank == 0):
             with open(self.out_dir +
                       f'cmd_acc_{trainer.current_epoch}-step{trainer.global_step:05d}_{cmd_token_acc:.6f}_{cmd_acc:.6f}.txt', 'w') as outfile:
                 outfile.write(f"{cmd_token_acc}\t{n_matched}\t{total_cmd_tokens}\t{cmd_acc}\t{full_matches}\t{num_cmds}\t{trainer.current_epoch}\t{trainer.global_step}")

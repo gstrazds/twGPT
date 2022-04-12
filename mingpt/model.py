@@ -118,6 +118,13 @@ class GPTLitModule(pl.LightningModule):
         self.tokens = 0
         logger.info("number of parameters: %e", sum(p.numel() for p in self.model.parameters()))
 
+    def is_rank_zero(self):
+        if hasattr(self, "global_rank"):
+            return self.global_rank == 0
+        else:
+            print("WARNING: NO attr 'global_rank'")
+        return False
+
     def configure_optimizers(self):
         """
         This long function is unfortunately doing something very simple and is being very defensive:
@@ -414,10 +421,10 @@ def eval_predict_cmd_tokens(trainer, pl_module:GPTLitModule, dataset, tokenizer=
     full_matches = 0
     total_cmds = 0
     n_printed = 0
-    rank = 0
-    if trainer:
-        if hasattr(trainer, "rank"):
-            rank = trainer.rank
+    rank = -1
+    # elif trainer:
+    #     if hasattr(trainer, "rank"):
+    #         rank = trainer.rank
 
     max_eval_games = 1000000  # infinity for all practical purposes
     max_eval_games = pl_module.hparams.trainer.limit_val_batches
@@ -428,7 +435,7 @@ def eval_predict_cmd_tokens(trainer, pl_module:GPTLitModule, dataset, tokenizer=
     #         print(idx, "...")  # let them know we're actually doing something...
     for igame in range(min(dataset.num_games, max_eval_games)):
         if igame % 10 == 0:
-            if rank == 0:
+            if pl_module.is_rank_zero():
                 print(f"+{igame} [:{dataset.get_num_steps(igame)}] --------------------------")
         if hasattr(pl_module, 'reset_episode'):
             pl_module.reset_episode()
@@ -447,7 +454,7 @@ def eval_predict_cmd_tokens(trainer, pl_module:GPTLitModule, dataset, tokenizer=
             else:  # n_matched != n_cmd_tokens:
                 n_printed += 1
                 if n_printed < 10 or n_printed % 100 == 0 or igame > dataset.num_games - 3:
-                    if rank == 0:
+                    if pl_module.is_rank_zero():
                         print(
                             f" {igame}.{istep}  ...   \t{n_matched} / {cmd_len}   \tacc: {n_matched / cmd_len:4f}")
                         if tokenizer:

@@ -7,11 +7,13 @@ defaults:
 cwd_path: "."   # gets expanded to an absolute path to the original current directory (not the Hydra/runtime working dir)
 
 train_ftwc: True
+use_wandb: True
+
 resume_from_checkpoint: null  #/home/guntis/work/0_magd3/tw13/minGPT/saved_models/dec18-startofepoch2.ckpt
 
 gpus:  # 1 # set to a single int n to auto-select n gpus from all available, or to a list of gpu indices e.g. [0,1,2,3]
   - 0  # yaml format for a list
-#  - 1
+  - 1
 #  - 2
 #  - 3
 
@@ -42,7 +44,7 @@ trainer:
   batch_size: 192
   max_epochs: 6
   learning_rate: 6e-4
-  val_check_interval: 0.5
+  val_check_interval: 1.0  # 0.5
   patience: 25
   save_top_k: 25
   limit_val_batches: 10000  # this should cover all of our current validation set (but maybe not the test set?)
@@ -53,12 +55,13 @@ trainer:
   lr_decay: true
   weight_decay: 0.1 # only applied on matmul weights
   warmup_tokens: 10240  #512*20
-  decay_tokens: 2*${len(dataset)}*${gpt.block_size}  # set by caller after loading training data
+  decay_tokens: 2000*${gpt.block_size} # 2*${len(dataset)}*${gpt.block_size}  # set by caller after loading training data
 
 eval:
 #  checkpoint: ${cwd_path}/saved_models/instrgpt-epoch=4-step=1314-train_loss_step=0.125-val_loss=0.231.ckpt
 #  checkpoint: ${cwd_path}/saved_models/12-31/mingpt-epoch=1-step=1469-train_loss_step=0.197-val_loss=0.662.ckpt  # 84.2 % (win 27/124)
-  checkpoint: ${cwd_path}/saved_models/2021-01-04_16-24-29/instrgpt-epoch=4-step=1655-train_loss_step=0.129-val_loss=0.258.ckpt  #
+#  checkpoint: ${cwd_path}/saved_models/2021-01-04_16-24-29/instrgpt-epoch=4-step=1655-train_loss_step=0.129-val_loss=0.258.ckpt  #
+  checkpoint: ${cwd_path}/outputs/2021-12-10/11-49-32/lightning_logs/version_0/checkpoints/instrgpt-epoch=5-step=917-train_loss_step=0.228-val_loss=0.239.ckpt
   #instrgpt-epoch=4-step=3380-train_loss_step=0.155-val_loss=0.920.ckpt # 88.29%
   #instrgpt-epoch=4-step=3380-train_loss_step=0.155-val_loss=0.920.ckpt # 88.29%
   # mingpt-epoch=02-step=01616-val_loss=0.66.ckpt  # 83.6 % (win 29/124)
@@ -66,6 +69,6 @@ eval:
   play_games: False
   which_set: valid
   root_dir: /ssd2tb/gata  # /ssd2tb/ftwc
-  pthru_data_dir: ${eval.root_dir}/playthru_data/gatagpt-${eval.which_set}  #mingpt-${eval.which_set}
+  pthru_data_dir: ${eval.root_dir}/playthru_data/gata_${eval.which_set}  #mingpt-${eval.which_set}
   games_dir: ${eval.root_dir}/games_gata/${eval.which_set}/
 

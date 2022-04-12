@@ -484,6 +484,7 @@ class PlaythroughDataModule(LightningDataModule):
             num_workers=self.num_workers,
             drop_last=True,
             pin_memory=True,
+            persistent_workers=True
         )
         return loader
 
@@ -503,6 +504,7 @@ class PlaythroughDataModule(LightningDataModule):
             num_workers=self.num_workers,
             drop_last=True,
             pin_memory=True,
+            persistent_workers=True
         )
         return loader
 
