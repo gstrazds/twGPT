@@ -63,8 +63,8 @@ class CausalSelfAttention(nn.Module):
                                      .view(1, 1, config.block_size, config.block_size))
         self.n_head = config.n_head
 
-    def forward(self, x, layer_past=None):
-        B, T, C = x.size()
+    def forward(self, x):
+        B, T, C = x.size()  # batch size, sequence length, embedding dimensionality (n_embd)
 
         # calculate query, key, values for all heads in batch and move head forward to be the batch dim
         k = self.key(x).view(B, T, self.n_head, C // self.n_head).transpose(1, 2) # (B, nh, T, hs)
@@ -117,6 +117,7 @@ class GPTLitModule(pl.LightningModule):
         self.criterion = nn.CrossEntropyLoss()
         self.tokens = 0
         logger.info("number of parameters: %e", sum(p.numel() for p in self.model.parameters()))
+        print(self.model)
 
     def is_rank_zero(self):
         if hasattr(self, "global_rank"):
@@ -387,13 +388,14 @@ class GPT(nn.Module):
 
     def _init_weights(self, module):
         if isinstance(module, (nn.Linear, nn.Embedding)):
-            module.weight.data.normal_(mean=0.0, std=0.02)
+            torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
             if isinstance(module, nn.Linear) and module.bias is not None:
-                module.bias.data.zero_()
+                torch.nn.init.zeros_(module.bias)
         elif isinstance(module, nn.LayerNorm):
-            module.bias.data.zero_()
-            module.weight.data.fill_(1.0)
-
+            torch.nn.init.zeros_(module.bias)
+            torch.nn.init.ones_(module.weight)
+        elif isinstance(module, GPT):
+            torch.nn.init.normal_(module.pos_emb, mean=0.0, std=0.02)
 
     def forward(self, idx, targets=None):
         b, t = idx.size()

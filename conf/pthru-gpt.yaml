@@ -13,8 +13,8 @@ use_wandb: False
 
 resume_from_checkpoint: null  #/home/guntis/work/0_magd3/tw13/minGPT/saved_models/dec18-startofepoch2.ckpt
 
-gpus:  # 1 # set to a single int n to auto-select n gpus from all available, or to a list of gpu indices e.g. [0,1,2,3]
-  - 0  # yaml format for a list
+gpus:  1 # set to a single int n to auto-select n gpus from all available, or to a list of gpu indices e.g. [0,1,2,3]
+#  - 0  # yaml format for a list
 #  - 1
 #  - 2
 #  - 3
@@ -34,17 +34,20 @@ data:
 
 gpt:
   block_size: 128  # spatial extent of the model for its context
+  attention_type: scaled_dot_product  # for xFormers framework
+  hidden_layer_multiplier: 4          # xFormers framework
   n_layer: 7
   n_head: 8
   n_embd: 512
   embd_pdrop: 0.1
   resid_pdrop: 0.1
   attn_pdrop: 0.1
+  mlp_pdrop: 0.1                  # for xFormers framework
   vocab_size: 0     # gets filled in after we load the vocabulary
 
 trainer:
   batch_size: 192
-  max_epochs: 6
+  max_epochs: 3
   learning_rate: 6e-4
   val_check_interval: 1.0  # 0.5
   patience: 25
@@ -58,6 +61,7 @@ trainer:
   weight_decay: 0.1 # only applied on matmul weights
   warmup_tokens: 10240  #512*20
   decay_tokens: 2000*${gpt.block_size} # 2*${len(dataset)}*${gpt.block_size}  # set by caller after loading training data
+  show_samples: True
 
 eval:
 #  checkpoint: ${cwd_path}/saved_models/instrgpt-epoch=4-step=1314-train_loss_step=0.125-val_loss=0.231.ckpt
@@ -69,8 +73,9 @@ eval:
   # mingpt-epoch=02-step=01616-val_loss=0.66.ckpt  # 83.6 % (win 29/124)
   # mingpt-epoch=2-step=1616-train_loss_step=0.199-val_loss=0.662.ckpt  # 83.6
   play_games: False
-  which_set: valid
-  root_dir: /ssd2tb/gata  # /ssd2tb/ftwc
-  pthru_data_dir: ${eval.root_dir}/playthru_data/gata_${eval.which_set}  #mingpt-${eval.which_set}
-  games_dir: ${eval.root_dir}/games_gata/${eval.which_set}/
+  which_set: valid    # valid or test
+  which_games: gata   # gata or ftwc
+  root_dir: /ssd2tb/${eval.which_games}  # /ssd2tb/ftwc
+  pthru_data_dir: ${eval.root_dir}/playthru_data/${eval.which_games}_${eval.which_set}  #mingpt-${eval.which_set}
+  games_dir: ${eval.root_dir}/games_${eval.which_games}/${eval.which_set}/
 

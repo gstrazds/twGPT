@@ -100,8 +100,11 @@ def main(cfg: DictConfig) -> None:
         # early_stopping = EarlyStopping('val_acc', mode='max', patience=5)
         callback_list.append(early_stopping)
 
-    if cfg.train_ftwc:
+    if cfg.trainer.show_samples:
         show_samples_callback = SamplePredictions(_datamodule.tokenizer, _datamodule.validation_dataset, out_dir="./", how_many=5)
+        callback_list.append(show_samples_callback)
+
+    if cfg.train_ftwc:
         callback_list.append(show_samples_callback)
 
     callback_list.append(CUDACallback())
