@@ -10,7 +10,7 @@ from omegaconf import OmegaConf, DictConfig
 import pytorch_lightning as pl
 from pytorch_lightning import seed_everything
 import wandb
-from pytorch_lightning.loggers import WandbLogger
+from pytorch_lightning.loggers import WandbLogger, TensorBoardLogger
 from pytorch_lightning.callbacks import Callback, EarlyStopping, ModelCheckpoint
 from pytorch_lightning.utilities import rank_zero_info
 
@@ -33,7 +33,7 @@ def main(cfg: DictConfig) -> None:
 # ?   wandb.init(project="tw-mingpt")
 
     start_time = datetime.datetime.now()
-    print(f"======================================= train_gpt.py - Start time: {start_time}\n{os.getcwd()}\n")
+    rank_zero_info(f"======================================= {__file__} - Start time: {start_time}\n{os.getcwd()}\n")
 
     if cfg.train_ftwc:
         model_data_id = 'instrgpt'
@@ -74,7 +74,6 @@ def main(cfg: DictConfig) -> None:
 
     # pl_model.load_from_checkpoint(checkpoint_path=cfg.cwd_path + "/saved_models/dec18-startofepoch2.ckpt")
 
-    print("USING PyTorch Lightning Trainer")
     _datamodule.train_dataset.print_info("train_dataset")
     _datamodule.validation_dataset.print_info("validation_dataset")
 
@@ -107,30 +106,27 @@ def main(cfg: DictConfig) -> None:
 
     callback_list.append(CUDACallback())
 
+    EXPERIMENT_NAME = ''
+    tb_logger = TensorBoardLogger(save_dir='logs/', name=EXPERIMENT_NAME)
+    loggers_list = [tb_logger]
     if cfg.use_wandb:
         if pl_model.is_rank_zero():
-            wandb.init(project="tw-mingpt")
-        wandb_logger = WandbLogger(project="tw-mingpt")
-        trainer = pl.Trainer(gpus=cfg.gpus,
-                             max_epochs=cfg.trainer.max_epochs,
-                             val_check_interval=cfg.trainer.val_check_interval,
-                             limit_val_batches=cfg.trainer.limit_val_batches,
-                             resume_from_checkpoint=cfg.resume_from_checkpoint,
-                             callbacks=callback_list,
-                             strategy='ddp',
-                             logger=wandb_logger)
-    else:
-        trainer = pl.Trainer(gpus=cfg.gpus,
-                             max_epochs=cfg.trainer.max_epochs,
-                             val_check_interval=cfg.trainer.val_check_interval,
-                             limit_val_batches=cfg.trainer.limit_val_batches,
-                             resume_from_checkpoint=cfg.resume_from_checkpoint,
-                             callbacks=callback_list,
-                             strategy='ddp')
+            wandb.init(project="tw-mingpt", name=EXPERIMENT_NAME)
+        wandb_logger = WandbLogger(project="tw-mingpt", name=EXPERIMENT_NAME)
+        loggers_list.append(wandb_logger)
+
+    trainer = pl.Trainer(gpus=cfg.gpus,
+                         max_epochs=cfg.trainer.max_epochs,
+                         val_check_interval=cfg.trainer.val_check_interval,
+                         limit_val_batches=cfg.trainer.limit_val_batches,
+                         resume_from_checkpoint=cfg.resume_from_checkpoint,
+                         callbacks=callback_list,
+                         strategy='ddp',
+                         logger=loggers_list)
     trainer.fit(pl_model, _datamodule)
 
     finish_time = datetime.datetime.now()
-    print(f"================ train_gpt.py - Finished : {finish_time} -- elapsed: {finish_time-start_time}")
+    rank_zero_info(f"================ {__file__} - Finished : {finish_time} -- elapsed: {finish_time-start_time}")
 
 
 def show_sample(tokenizer, idx, y_predicted, y_ids, n_sampled=5):
@@ -162,10 +158,10 @@ class SamplePredictions(Callback):
         if pl_module.is_rank_zero():
             pl_module.logger.log_metrics({"cmd_acc": cmd_acc}, step=trainer.global_step)  #n_matched / total_cmd_tokens)
             pl_module.logger.log_metrics({"tok_acc": cmd_token_acc}, step=trainer.global_step)  #n_matched / total_cmd_tokens)
-        if self.out_dir:  #(not hasattr(trainer, "rank") or trainer.rank == 0):
-            with open(self.out_dir +
-                      f'cmd_acc_{trainer.current_epoch}-step{trainer.global_step:05d}_{cmd_token_acc:.6f}_{cmd_acc:.6f}.txt', 'w') as outfile:
-                outfile.write(f"{cmd_token_acc}\t{n_matched}\t{total_cmd_tokens}\t{cmd_acc}\t{full_matches}\t{num_cmds}\t{trainer.current_epoch}\t{trainer.global_step}")
+            if self.out_dir:  #(not hasattr(trainer, "rank") or trainer.rank == 0):
+                with open(self.out_dir +
+                          f'cmd_acc_{trainer.current_epoch}-step{trainer.global_step:05d}_{cmd_token_acc:.4f}_{cmd_acc:.4f}.txt', 'w') as outfile:
+                    outfile.write(f"{cmd_token_acc}\t{n_matched}\t{total_cmd_tokens}\t{cmd_acc}\t{full_matches}\t{num_cmds}\t{trainer.current_epoch}\t{trainer.global_step}")
 
 
         # SAMPLE_LEN = 4

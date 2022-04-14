@@ -229,7 +229,7 @@ def main(cfg: DictConfig) -> None:
     seed_everything(cfg.general.random_seed)
 
     start_time = datetime.datetime.now()
-    print(f"======================================= eval_gpt.py - Start time: {start_time}\n{os.getcwd()}\n")
+    print(f"======================================= {__file__} - Start time: {start_time}\n{os.getcwd()}\n")
     pass
 
     _datamodule = PlaythroughDataModule(
@@ -314,7 +314,7 @@ def main(cfg: DictConfig) -> None:
         with open(cfg.eval.checkpoint+".play_games.results", "a+") as f:
             f.write(dict_out+'\n\n')
             finish_time = datetime.datetime.now()
-            f.write(f"================ eval_gpt.py - Finished : {finish_time} -- elapsed: {finish_time-start_time}\n")
+            f.write(f"================ {__file__} - Finished : {finish_time} -- elapsed: {finish_time-start_time}\n")
     else:
         debug_print_some_spans(dataset)
 
@@ -324,7 +324,7 @@ def main(cfg: DictConfig) -> None:
         print(f"CMDS: {full_matches}/{num_cmds} acc={full_matches / num_cmds}")
 
         finish_time = datetime.datetime.now()
-    print(f"================ eval_gpt.py - Finished : {finish_time} -- elapsed: {finish_time-start_time}")
+    print(f"================ {__file__} - Finished : {finish_time} -- elapsed: {finish_time-start_time}")
 
 
 def debug_print_some_spans(dataset):
@@ -353,16 +353,6 @@ def debug_print_some_spans(dataset):
     # print(_datamodule.tokenizer.decode(token_list))
     # print()
 
-
-# def show_sample(tokenizer, idx, y_predicted, y_ids, n_sampled=5):
-    # # print(f"!{idx}!", tokenizer.decode(y_ids))
-    # print(f"({idx})", tokenizer.decode(y_ids[0:6]), '[....]',
-    #       tokenizer.decode(y_ids[-5-n_sampled:-n_sampled]), "|",
-    #       tokenizer.decode(y_ids[-n_sampled:]))
-    #
-    # print(f"<{idx}>", tokenizer.decode(y_predicted[1:7]), '[....]',
-    #       tokenizer.decode(y_predicted[-5-n_sampled:]))
-    # print()
 
 
 if __name__ == '__main__':

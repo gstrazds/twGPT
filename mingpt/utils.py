@@ -34,7 +34,7 @@ def sample(model, block_size, x, steps, temperature=1.0, sample=False, top_k=Non
     model.eval()
     for k in range(steps):
         x_cond = x if x.size(1) <= block_size else x[:, -block_size:] # crop context if needed
-        logits, _ = model(x_cond)
+        logits = model(x_cond)
         logits = logits[:, -1, :]  # use the logits from the last seq pos
         ix = tokid_from_logits(logits, temperature=temperature, sample=sample, top_k=top_k)
         # append to the sequence and continue

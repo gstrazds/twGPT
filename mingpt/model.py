@@ -358,6 +358,7 @@ class GPTLitModule(pl.LightningModule):
     def sample_ahead(self, x, n_samples, temperature=1.0, randsampling=False, top_k=None):
         x_in = x[None, ...]  # x.unsqueeze(0) -- increases tensor rank from 1 to 2 by adding a new dimension 0
                              # (consisting of just one row = the original tensor[which, in this case, was a vector])
+
         preds = sample(self.model, self.hparams.gpt.block_size, x_in, steps=n_samples, temperature=temperature, sample=randsampling, top_k=top_k)
         # print(f"sample_ahead: preds.size={preds.size()}")
         return preds.detach()[0]
@@ -408,11 +409,10 @@ class GPT(nn.Module):
         logits = self.head(x)
 
         # if we are given some desired targets also calculate the loss
-        loss = None
         if targets is not None:
             loss = F.cross_entropy(logits.view(-1, logits.size(-1)), targets.view(-1))
-
-        return logits, loss
+            return logits, loss
+        return logits
 
 
 def eval_predict_cmd_tokens(trainer, pl_module:GPTLitModule, dataset, tokenizer=None):
