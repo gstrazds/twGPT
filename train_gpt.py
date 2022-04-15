@@ -16,7 +16,7 @@ from pytorch_lightning.utilities import rank_zero_info
 
 from mingpt.pthru_dataset import PlaythroughDataModule
 from mingpt.char_dataset import CharDataModule
-from mingpt.model import GPTLitModule, eval_predict_cmd_tokens
+from mingpt.pl_module import GPTLitModule, eval_predict_cmd_tokens
 from mingpt.callback import CUDACallback
 from mingpt.lr_decay import LearningRateDecayCallback
 

@@ -20,7 +20,7 @@ from twutils.playthroughs import start_game_for_playthrough, step_game_for_playt
 from twutils.playthroughs import playthrough_step_to_json, format_playthrough_step, concat_pthru_step
 
 from mingpt.pthru_dataset import PlaythroughDataModule
-from mingpt.model import GPTLitModule, eval_predict_cmd_tokens
+from mingpt.pl_module import GPTLitModule, eval_predict_cmd_tokens
 
 
 def predict_cmd(pl_module, tokenizer, pthru_so_far: str, failed_cmds: List[str] = None) -> str:
