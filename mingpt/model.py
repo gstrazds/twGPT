@@ -16,23 +16,23 @@ from torch.nn import functional as F
 
 logger = logging.getLogger(__name__)
 
-class GPTConfig:
-    """ base GPT config, params common to all GPT versions """
-    embd_pdrop = 0.1
-    resid_pdrop = 0.1
-    attn_pdrop = 0.1
-
-    def __init__(self, vocab_size=None, block_size=128, **kwargs):
-        self.vocab_size = vocab_size
-        self.block_size = block_size
-        for k,v in kwargs.items():
-            setattr(self, k, v)
-
-class GPT1Config(GPTConfig):
-    """ GPT-1 like network roughly 125M params """
-    n_layer = 12
-    n_head = 12
-    n_embd = 768
+# class GPTConfig:
+#     """ base GPT config, params common to all GPT versions """
+#     embd_pdrop = 0.1
+#     resid_pdrop = 0.1
+#     attn_pdrop = 0.1
+#
+#     def __init__(self, vocab_size=None, block_size=128, **kwargs):
+#         self.vocab_size = vocab_size
+#         self.block_size = block_size
+#         for k,v in kwargs.items():
+#             setattr(self, k, v)
+#
+# class GPT1Config(GPTConfig):
+#     """ GPT-1 like network roughly 125M params """
+#     n_layer = 12
+#     n_head = 12
+#     n_embd = 768
 
 class CausalSelfAttention(nn.Module):
     """
@@ -41,22 +41,22 @@ class CausalSelfAttention(nn.Module):
     explicit implementation here to show that there is nothing too scary here.
     """
 
-    def __init__(self, config):
+    def __init__(self, n_embd, block_size, n_head, attn_pdrop, resid_pdrop):
         super().__init__()
-        assert config.n_embd % config.n_head == 0
+        assert n_embd % n_head == 0
         # key, query, value projections for all heads
-        self.key = nn.Linear(config.n_embd, config.n_embd)
-        self.query = nn.Linear(config.n_embd, config.n_embd)
-        self.value = nn.Linear(config.n_embd, config.n_embd)
+        self.key = nn.Linear(n_embd, n_embd)
+        self.query = nn.Linear(n_embd, n_embd)
+        self.value = nn.Linear(n_embd, n_embd)
         # regularization
-        self.attn_drop = nn.Dropout(config.attn_pdrop)
-        self.resid_drop = nn.Dropout(config.resid_pdrop)
+        self.attn_drop = nn.Dropout(attn_pdrop)
+        self.resid_drop = nn.Dropout(resid_pdrop)
         # output projection
-        self.proj = nn.Linear(config.n_embd, config.n_embd)
+        self.proj = nn.Linear(n_embd, n_embd)
         # causal mask to ensure that attention is only applied to the left in the input sequence
-        self.register_buffer("mask", torch.tril(torch.ones(config.block_size, config.block_size))
-                                     .view(1, 1, config.block_size, config.block_size))
-        self.n_head = config.n_head
+        self.register_buffer("mask", torch.tril(torch.ones(block_size, block_size))
+                                     .view(1, 1, block_size, block_size))
+        self.n_head = n_head
 
     def forward(self, x):
         B, T, C = x.size()  # batch size, sequence length, embedding dimensionality (n_embd)
@@ -81,16 +81,16 @@ class CausalSelfAttention(nn.Module):
 class Block(nn.Module):
     """ an unassuming Transformer block """
 
-    def __init__(self, config):
+    def __init__(self, n_embd, block_size, n_head, attn_pdrop, resid_pdrop):
         super().__init__()
-        self.ln1 = nn.LayerNorm(config.n_embd)
-        self.ln2 = nn.LayerNorm(config.n_embd)
-        self.attn = CausalSelfAttention(config)
+        self.ln1 = nn.LayerNorm(n_embd)
+        self.ln2 = nn.LayerNorm(n_embd)
+        self.attn = CausalSelfAttention(n_embd, block_size, n_head, attn_pdrop, resid_pdrop)
         self.mlp = nn.Sequential(
-            nn.Linear(config.n_embd, 4 * config.n_embd),
+            nn.Linear(n_embd, 4 * n_embd),
             nn.GELU(),
-            nn.Linear(4 * config.n_embd, config.n_embd),
-            nn.Dropout(config.resid_pdrop),
+            nn.Linear(4 * n_embd, n_embd),
+            nn.Dropout(resid_pdrop),
         )
 
     def forward(self, x):
@@ -100,22 +100,33 @@ class Block(nn.Module):
 
 
 class GPT(nn.Module):
-    def __init__(self, hparams):
+    def __init__(self,
+                 vocab_size: int,  # size of the vocabulary (number of possible tokens)
+                 block_size: int,  # length of the model's context window in time
+                 n_layer: int,     # depth of the model; number of Transformer blocks in sequence
+                 n_embd: int,      # the "width" of the model, number of channels in each Transformer
+                 n_head: int,      # number of heads in each multi-head attention inside each Transformer block
+                 embd_pdrop: float = 0.1,  # \in [0,1]: amount of dropout on input embeddings
+                 resid_pdrop: float = 0.1, # \in [0,1]: amount of dropout in each residual connection
+                 attn_pdrop: float = 0.1,  # \in [0,1]: amount of dropout on the attention matrix
+                 **kwargs  # ignore any extra named args
+                 ):
         super().__init__()
 
-        mconf = GPTConfig(**hparams)    # n_layer=8, n_head=8, n_embd=512)
+#        mconf = GPTConfig(**hparams)    # n_layer=8, n_head=8, n_embd=512)
+        logger.info(f"IGNORING EXTRA GPT() kwargs: {kwargs}")
 
         # input embedding stem
-        self.tok_emb = nn.Embedding(mconf.vocab_size, mconf.n_embd)
-        self.pos_emb = nn.Parameter(torch.zeros(1, mconf.block_size, mconf.n_embd))
-        self.drop = nn.Dropout(mconf.embd_pdrop)
+        self.tok_emb = nn.Embedding(vocab_size, n_embd)
+        self.pos_emb = nn.Parameter(torch.zeros(1, block_size, n_embd))
+        self.drop = nn.Dropout(embd_pdrop)
         # transformer
-        self.blocks = nn.Sequential(*[Block(mconf) for _ in range(mconf.n_layer)])
+        self.blocks = nn.Sequential(*[Block(n_embd, block_size, n_head, attn_pdrop, resid_pdrop) for _ in range(n_layer)])
         # decoder head
-        self.ln_f = nn.LayerNorm(mconf.n_embd)
-        self.head = nn.Linear(mconf.n_embd, mconf.vocab_size, bias=False)
+        self.ln_f = nn.LayerNorm(n_embd)
+        self.head = nn.Linear(n_embd, vocab_size, bias=False)
 
-        self.block_size = mconf.block_size
+        self.block_size = block_size
         self.apply(self._init_weights)
 
 

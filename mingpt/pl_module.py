@@ -19,7 +19,11 @@ class GPTLitModule(pl.LightningModule):
         self.cmd_start_marker = None   # need to call set_cmd_markers() before running validation_step()
         self.cmd_end_marker = None
 
-        self.model = GPT(config.gpt)     # **config.gpt
+        if config.gpt.use_xformers:
+            from .model_xf import GPTxf
+            self.model = GPTxf(config.gpt)  # **config.gpt
+        else:
+            self.model = GPT(**config.gpt)
         # self.criterion = nn.CrossEntropyLoss()
         logger.info("number of parameters: %e", sum(p.numel() for p in self.model.parameters()))
         print(self.model)
@@ -55,7 +59,9 @@ class GPTLitModule(pl.LightningModule):
             assert len(batch) == 2, "Expecting each training batch to be a tuple of x,y,(padding) "+int(len(batch))
             x, targets = batch
 
-        logits, loss = self.model(x, targets)
+        #logits, loss = self.model(x, targets)
+        logits = self.model(x)
+        loss = F.cross_entropy(logits.view(-1, logits.size(-1)), targets.view(-1))
 
         self.log('train_loss', loss, on_step=True, on_epoch=True, prog_bar=True)
         return {"loss": loss}
@@ -68,8 +74,10 @@ class GPTLitModule(pl.LightningModule):
             assert len(batch) == 2, "Expecting each training batch to be a tuple of x,y,(padding) "+int(len(batch))
             batch_x, batch_y = batch
 
-        logits, loss = self.model(batch_x, batch_y)
+        #logits, loss = self.model(batch_x, batch_y)
+        logits = self.model(batch_x)
         # loss = F.cross_entropy(logits, batch_y)
+        loss = F.cross_entropy(logits.view(-1, logits.size(-1)), batch_y.view(-1))
 
         self.log('val_loss', loss, on_step=True, on_epoch=True, prog_bar=True)
         metrics = {'val_loss': loss} #, 'val_acc': acc}

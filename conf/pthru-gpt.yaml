@@ -34,6 +34,7 @@ data:
 
 gpt:
   block_size: 128  # spatial extent of the model for its context
+  use_xformers: False
   attention_type: scaled_dot_product  # for xFormers framework
   hidden_layer_multiplier: 4          # xFormers framework
   n_layer: 7
