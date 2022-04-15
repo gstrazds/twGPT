@@ -1,13 +1,3 @@
-"""
-GPT model:
-- the initial stem consists of a combination of token encoding and a positional encoding
-- the meat of it is a uniform sequence of Transformer blocks
-    - each Transformer is a sequential combination of a 1-hidden-layer MLP block and a self-attention block
-    - all blocks feed into a central residual pathway similar to resnets
-- the final decoder is a linear projection into a vanilla Softmax classifier
-"""
-
-import math
 import logging
 
 import torch
@@ -17,7 +7,7 @@ from torch.nn import functional as F
 import pytorch_lightning as pl
 
 from .utils import sample, tokid_from_logits
-from .model import GPT, GPTConfig
+from .model import GPT
 
 logger = logging.getLogger(__name__)
 
@@ -29,10 +19,8 @@ class GPTLitModule(pl.LightningModule):
         self.cmd_start_marker = None   # need to call set_cmd_markers() before running validation_step()
         self.cmd_end_marker = None
 
-        mconf = GPTConfig(**config.gpt)    # n_layer=8, n_head=8, n_embd=512)
-        self.model = GPT(mconf)
-        self.criterion = nn.CrossEntropyLoss()
-        self.tokens = 0
+        self.model = GPT(config.gpt)     # **config.gpt
+        # self.criterion = nn.CrossEntropyLoss()
         logger.info("number of parameters: %e", sum(p.numel() for p in self.model.parameters()))
         print(self.model)
 
@@ -44,49 +32,10 @@ class GPTLitModule(pl.LightningModule):
         return False
 
     def configure_optimizers(self):
-        """
-        This long function is unfortunately doing something very simple and is being very defensive:
-        We are separating out all parameters of the model into two buckets: those that will experience
-        weight decay for regularization and those that won't (biases, and layernorm/embedding weights).
-        We are then returning the PyTorch optimizer object.
-        """
-        module = self.model
-        self.tokens = 0  # reset count of tokens processed
+        # self._tokens_seen = 0  # reset count of tokens processed
         # separate out all parameters to those that will and won't experience regularizing weight decay
-        decay = set()
-        no_decay = set()
-        whitelist_weight_modules = (torch.nn.Linear, )
-        blacklist_weight_modules = (torch.nn.LayerNorm, torch.nn.Embedding)
-        for mn, m in module.named_modules():
-            for pn, p in m.named_parameters():
-                fpn = '%s.%s' % (mn, pn) if mn else pn # full param name
+        optim_groups = self.model.get_param_groups(self.hparams.trainer.weight_decay)
 
-                if pn.endswith('bias'):
-                    # all biases will not be decayed
-                    no_decay.add(fpn)
-                elif pn.endswith('weight') and isinstance(m, whitelist_weight_modules):
-                    # weights of whitelist modules will be weight decayed
-                    decay.add(fpn)
-                elif pn.endswith('weight') and isinstance(m, blacklist_weight_modules):
-                    # weights of blacklist modules will NOT be weight decayed
-                    no_decay.add(fpn)
-
-        # special case the position embedding parameter in the root GPT module as not decayed
-        no_decay.add('pos_emb')
-
-        # validate that we considered every parameter
-        param_dict = {pn: p for pn, p in module.named_parameters()}
-        inter_params = decay & no_decay
-        union_params = decay | no_decay
-        assert len(inter_params) == 0, "parameters %s made it into both decay/no_decay sets!" % (str(inter_params), )
-        assert len(param_dict.keys() - union_params) == 0, "parameters %s were not separated into either decay/no_decay set!" \
-                                                    % (str(param_dict.keys() - union_params), )
-
-        # create the pytorch optimizer object
-        optim_groups = [
-            {"params": [param_dict[pn] for pn in sorted(list(decay))], "weight_decay": self.hparams.trainer.weight_decay},
-            {"params": [param_dict[pn] for pn in sorted(list(no_decay))], "weight_decay": 0.0},
-        ]
         optimizer =  torch.optim.AdamW(optim_groups, lr=self.hparams.trainer.learning_rate, betas=self.hparams.trainer.betas)
         # lr_scheduler = {'scheduler': torch.optim.lr_scheduler.CosineAnnealingLR(
         #                                 optimizer,
@@ -97,24 +46,16 @@ class GPTLitModule(pl.LightningModule):
         #                 'name': 'cos_anneal_lr',
         #                 'interval': 'step',
         #                 'frequency': 1}
-#        self._optimizer = optimizer  # shouldn't be necessary for pt_lightning
-
         return optimizer  #, lr_scheduler
 
     def training_step(self, batch, batch_idx):
         if len(batch) == 3:
-            x, y, _unused__pad_len = batch
+            x, targets, _unused__pad_len = batch
         else:
             assert len(batch) == 2, "Expecting each training batch to be a tuple of x,y,(padding) "+int(len(batch))
-            x, y = batch
+            x, targets = batch
 
-        # clf_logits = self.model(x, classify=True)
-        # loss = self.criterion(clf_logits, y)
-        # loss = self.criterion(logits.view(-1, logits.size(-1)), x.view(-1).long())
-
-        logits, loss = self.model(x, y)
-
-        # self.adjust_learning_rate(y)
+        logits, loss = self.model(x, targets)
 
         self.log('train_loss', loss, on_step=True, on_epoch=True, prog_bar=True)
         return {"loss": loss}
@@ -126,12 +67,10 @@ class GPTLitModule(pl.LightningModule):
         else:
             assert len(batch) == 2, "Expecting each training batch to be a tuple of x,y,(padding) "+int(len(batch))
             batch_x, batch_y = batch
-        y_hat, loss = self.model(batch_x, batch_y)
 
-        # # 1. calculate loss
-        # loss = F.cross_entropy(y_hat, y)
+        logits, loss = self.model(batch_x, batch_y)
+        # loss = F.cross_entropy(logits, batch_y)
 
-        # 2. log `val_loss`
         self.log('val_loss', loss, on_step=True, on_epoch=True, prog_bar=True)
         metrics = {'val_loss': loss} #, 'val_acc': acc}
 
@@ -141,12 +80,11 @@ class GPTLitModule(pl.LightningModule):
         n_matched_cmds = 0
         if self.hparams.data.eval_filtering == 'cmd_prompts':
             assert batch_cmd_pos is not None
-            #print(f"y_hat.shape={y_hat.shape}")
-            for x, y, cmd_pos, pred in zip(batch_x, batch_y, batch_cmd_pos, y_hat):
+            #print(f"logits.shape={logits.shape}")
+            for x, y, cmd_pos, pred in zip(batch_x, batch_y, batch_cmd_pos, logits):
                 #print(f"calc_cmd_acc: len(x,y)=({len(x),len(y)})\n   x={x}\n  y={y}" )
                 #print(f"pred.shape={pred.shape}")
 
-                # TODO: use y_hat instead of recomputing predicted in calc_cmd_acc()
                 n_toks, n_matched, predicted, y_trunc = \
                     self.calc_cmd_acc(int(cmd_pos), x, y, predicted=pred)
                 n_cmd_tokens += n_toks

@@ -100,20 +100,22 @@ class Block(nn.Module):
 
 
 class GPT(nn.Module):
-    def __init__(self, config):
+    def __init__(self, hparams):
         super().__init__()
 
-        # input embedding stem
-        self.tok_emb = nn.Embedding(config.vocab_size, config.n_embd)
-        self.pos_emb = nn.Parameter(torch.zeros(1, config.block_size, config.n_embd))
-        self.drop = nn.Dropout(config.embd_pdrop)
-        # transformer
-        self.blocks = nn.Sequential(*[Block(config) for _ in range(config.n_layer)])
-        # decoder head
-        self.ln_f = nn.LayerNorm(config.n_embd)
-        self.head = nn.Linear(config.n_embd, config.vocab_size, bias=False)
+        mconf = GPTConfig(**hparams)    # n_layer=8, n_head=8, n_embd=512)
 
-        self.block_size = config.block_size
+        # input embedding stem
+        self.tok_emb = nn.Embedding(mconf.vocab_size, mconf.n_embd)
+        self.pos_emb = nn.Parameter(torch.zeros(1, mconf.block_size, mconf.n_embd))
+        self.drop = nn.Dropout(mconf.embd_pdrop)
+        # transformer
+        self.blocks = nn.Sequential(*[Block(mconf) for _ in range(mconf.n_layer)])
+        # decoder head
+        self.ln_f = nn.LayerNorm(mconf.n_embd)
+        self.head = nn.Linear(mconf.n_embd, mconf.vocab_size, bias=False)
+
+        self.block_size = mconf.block_size
         self.apply(self._init_weights)
 
 
@@ -150,4 +152,62 @@ class GPT(nn.Module):
             return logits, loss
         return logits
 
+    def get_param_groups(self, weight_decay: float):
+        """
+        This long function is unfortunately doing something very simple and is being very defensive:
+        We are separating out all parameters of the model into two buckets: those that will experience
+        weight decay for regularization and those that won't (biases, and layernorm/embedding weights).
+        """
+        decay = set()
+        no_decay = set()
+        whitelist_weight_modules = (torch.nn.Linear,)
+        blacklist_weight_modules = (torch.nn.LayerNorm, torch.nn.Embedding)
+        for mn, m in self.named_modules():
+            for pn, p in m.named_parameters():
+                fpn = '%s.%s' % (mn, pn) if mn else pn  # full param name
+
+                if pn.endswith('bias'):
+                    # all biases will not be decayed
+                    # print(type(m), "NO_decay:", pn, "\t\t|   ", fpn)
+                    no_decay.add(fpn)
+                elif pn.endswith('weight') and isinstance(m, blacklist_weight_modules):
+                    # weights of blacklist modules will NOT be weight decayed
+                    # print(type(m), "NO_decay:", pn, "\t\t|   ", fpn)
+                    no_decay.add(fpn)
+                elif pn.endswith('weight') and isinstance(m, whitelist_weight_modules):
+                    # weights of whitelist modules will be weight decayed
+                    # print(type(m), "DECAY:", pn, "\t\t|   ", fpn)
+                    decay.add(fpn)
+                else:
+                    # print(type(m), "UNMATCHED:", pn, "\t\t||||||   ", fpn)
+                    pass
+        # special case the position embedding parameter in the root GPT module as not decayed
+        no_decay.add('pos_emb')
+
+        # validate that we considered every parameter
+        # param_dict = {}
+        # for mn, m in self.named_modules():
+        #     for pn, p in m.named_parameters():
+        #         fpn = '%s.%s' % (mn, pn) if mn else pn  # full param name
+        #         param_dict[fpn] = p
+        param_dict = {pn: p for pn, p in self.named_parameters()}
+        inter_params = decay & no_decay
+        union_params = decay | no_decay
+        # print("DECAY:") #, sorted(list(decay)))
+        # for i, pn in enumerate(sorted(list(decay))):
+        #         print(f"[{i}]\t\t {pn}")
+        # print("NO_DECAY:")
+        # for i, pn in enumerate(sorted(list(no_decay))):
+        #         print(f"[{i}]\t\t {pn}")
+        # print("INTERSECTION:", sorted(list(inter_params)))
+        assert len(inter_params) == 0, "parameters %s made it into both decay/no_decay sets!" % (str(inter_params),)
+        assert len(
+            param_dict.keys() - union_params) == 0, "parameters %s were not separated into either decay/no_decay set!" \
+                                                    % (str(param_dict.keys() - union_params),)
+        # create the pytorch optimizer object
+        optim_groups = [
+            {"params": [param_dict[pn] for pn in sorted(list(decay))], "weight_decay": weight_decay},
+            {"params": [param_dict[pn] for pn in sorted(list(no_decay))], "weight_decay": 0.0},
+        ]
+        return optim_groups
 
