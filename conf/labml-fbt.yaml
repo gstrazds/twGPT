@@ -55,7 +55,7 @@ trainer:
   lr_decay: true
   weight_decay: 0.1 # only applied on matmul weights
   warmup_tokens: 10240  #512*20
-  decay_tokens: 2*${data.training.num_tokens}*${gpt.block_size} # caller updates decay_tokens after loading training data
+  decay_tokens: 2*${data.training.num_tokens}*${model.block_size} # caller updates decay_tokens after loading training data
 
 eval:
 #  checkpoint: ${cwd_path}/saved_models/dec18-startofepoch2.ckpt
