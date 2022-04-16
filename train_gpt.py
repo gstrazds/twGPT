@@ -29,9 +29,6 @@ def main(cfg: DictConfig) -> None:
 
     seed_everything(cfg.general.random_seed)
 
-# ?   wandb.login()
-# ?   wandb.init(project="tw-mingpt")
-
     start_time = datetime.datetime.now()
     rank_zero_info(f"======================================= {__file__} - Start time: {start_time}\n{os.getcwd()}\n")
 
@@ -100,11 +97,8 @@ def main(cfg: DictConfig) -> None:
         # early_stopping = EarlyStopping('val_acc', mode='max', patience=5)
         callback_list.append(early_stopping)
 
-    if cfg.trainer.show_samples:
+    if cfg.trainer.show_samples and cfg.train_ftwc:
         show_samples_callback = SamplePredictions(_datamodule.tokenizer, _datamodule.validation_dataset, out_dir="./", how_many=5)
-        callback_list.append(show_samples_callback)
-
-    if cfg.train_ftwc:
         callback_list.append(show_samples_callback)
 
     callback_list.append(CUDACallback())
@@ -114,8 +108,8 @@ def main(cfg: DictConfig) -> None:
     loggers_list = [tb_logger]
     if cfg.use_wandb:
         if pl_model.is_rank_zero():
-            wandb.init(project="tw-mingpt", name=EXPERIMENT_NAME)
-        wandb_logger = WandbLogger(project="tw-mingpt", name=EXPERIMENT_NAME)
+            wandb.init(project=cfg.wandb_proj, name=EXPERIMENT_NAME)
+        wandb_logger = WandbLogger(project=cfg.wandb_proj, name=EXPERIMENT_NAME)
         loggers_list.append(wandb_logger)
 
     trainer = pl.Trainer(gpus=cfg.gpus,
@@ -152,13 +146,13 @@ class SamplePredictions(Callback):
         self.out_dir = out_dir
 
     def on_validation_end(self, trainer, pl_module):
-        n_matched, total_cmd_tokens, full_matches, num_cmds = \
-                                eval_predict_cmd_tokens(trainer, pl_module, self.dataset, tokenizer=self.tokenizer)
-        cmd_token_acc = n_matched / total_cmd_tokens
-        cmd_acc = full_matches / num_cmds
-        rank_zero_info(f"VALIDATION CMD_TOKEN_ACC = {cmd_token_acc:.5f}  CMD_ACC = {cmd_acc:.5f}")
-        # (NOT YET SUPPORTED): pl_module.log("val_acc", n_matched / total_cmd_tokens, on_step=False, on_epoch=True, prog_bar=True)
         if pl_module.is_rank_zero():
+            n_matched, total_cmd_tokens, full_matches, num_cmds = \
+                                    eval_predict_cmd_tokens(trainer, pl_module, self.dataset, tokenizer=self.tokenizer)
+            cmd_token_acc = n_matched / total_cmd_tokens
+            cmd_acc = full_matches / num_cmds
+            rank_zero_info(f"VALIDATION CMD_TOKEN_ACC = {cmd_token_acc:.5f}  CMD_ACC = {cmd_acc:.5f}")
+            # (NOT YET SUPPORTED): pl_module.log("val_acc", n_matched / total_cmd_tokens, on_step=False, on_epoch=True, prog_bar=True)
             pl_module.logger.log_metrics({"cmd_acc": cmd_acc}, step=trainer.global_step)  #n_matched / total_cmd_tokens)
             pl_module.logger.log_metrics({"tok_acc": cmd_token_acc}, step=trainer.global_step)  #n_matched / total_cmd_tokens)
             if self.out_dir:  #(not hasattr(trainer, "rank") or trainer.rank == 0):

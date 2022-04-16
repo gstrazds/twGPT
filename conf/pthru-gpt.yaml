@@ -2,18 +2,19 @@
 # @package _global_
 
 defaults:
-# - def_values01  # can optionally provide default config values in external files listed here
+# - def_values01  # could optionally provide default config values in external file(s) listed here
   - _self_
-  - overrides: null   # can add arbitrary config files in conf/overrides/ to override values listed below
+  - overrides: null   # can select from config files in conf/overrides/ to override values listed below
 
 cwd_path: "."   # gets expanded to an absolute path to the original current directory (not the Hydra/runtime working dir)
 
 train_ftwc: True
 use_wandb: False
+wanddb_proj: tw-gpt-new
 
 resume_from_checkpoint: null  #/home/guntis/work/0_magd3/tw13/minGPT/saved_models/dec18-startofepoch2.ckpt
 
-gpus:  1 # set to a single int n to auto-select n gpus from all available, or to a list of gpu indices e.g. [0,1,2,3]
+gpus:  1 # a single int n to auto-select n gpus from those available, or else a list of gpu indices e.g. [0,1,2,3]
 #  - 0  # yaml format for a list
 #  - 1
 #  - 2

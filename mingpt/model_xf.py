@@ -174,8 +174,8 @@ class GPTxf(nn.Module):
                     # print(type(m), "DECAY:", pn, "\t\t|   ", fpn)
                     decay.add(fpn)
                 else:
-                    if "sublayer" not in pn and pn.endswith('weight'):
-                        print(type(m), "UNMATCHED:", pn, "\t\t||||||   ", fpn)
+                    # if "sublayer" not in pn and pn.endswith('weight'):
+                    #     print(type(m), "UNMATCHED:", pn, "\t\t||||||   ", fpn)
                     pass
 
         # validate that we considered every parameter
