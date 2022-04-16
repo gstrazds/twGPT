@@ -25,14 +25,15 @@ data:
   train_filtering: cmd_tokens
   eval_filtering: cmd_tokens
 
-transformer:    # Feedback Transformer
-  d_model: 512    # n_embd
+model:    # Feedback Transformer
+  d_embd: 512    # (used to be n_embd) - dimension of input embeddings to transformer blocks
   n_heads: 8
   n_layers: 8
   dropout: 0.1    # embd_pdrop, resid_pdrop, attn_pdrop
-  # d_ff: 2048    # 4*${transformer.d_model}   # 2048 = 4 * d_model -- FF layer of transformer encoder block
-  seq_len: 128    # aka block_size or 'attention window size'
-  n_vocab:  20000 # number of unique token ids -- set/updated after we load the vocabulary
+  hidden_layer_multiplier: 4          # used directly by xFormers framework
+  d_ff:  2048   #${.hidden_layer_multiplier}*${.d_embd}   # 2048 = 4 * d_embd -- FF layer of transformer encoder block
+  block_size: 128    # aka block_size or 'attention window size'
+  vocab_size:  20000 # number of unique token ids -- set/updated after we load the vocabulary
 
 trainer:
   max_epochs: 6

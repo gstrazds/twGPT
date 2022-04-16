@@ -41,7 +41,7 @@ def main(cfg: DictConfig) -> None:
             num_workers=cfg.data.num_workers,
             seed=cfg.general.random_seed,
             batch_size=cfg.trainer.batch_size,
-            block_size=cfg.gpt.block_size,
+            block_size=cfg.model.block_size,
             train_filtering=cfg.data.train_filtering,
             eval_filtering=cfg.data.eval_filtering, )
     else:
@@ -53,17 +53,17 @@ def main(cfg: DictConfig) -> None:
             num_workers=cfg.data.num_workers,
             seed=cfg.general.random_seed,
             batch_size=cfg.trainer.batch_size,
-            block_size=cfg.gpt.block_size, )
+            block_size=cfg.model.block_size, )
 
     _datamodule.prepare_data()
     train_dataset = _datamodule.train_dataset
 
     # dynamically set some config/hparam values (ensures that they get saved with results of each run)
-    cfg.gpt.vocab_size = _datamodule.vocab_size
-    cfg.trainer.decay_tokens = 2 * len(train_dataset) * cfg.gpt.block_size
+    cfg.model.vocab_size = _datamodule.vocab_size
+    cfg.trainer.decay_tokens = 2 * len(train_dataset) * cfg.model.block_size
 
     print(OmegaConf.to_yaml(cfg, resolve=True))
-    # print(f"Vocabulary size={cfg.gpt.vocab_size}")
+    # print(f"Vocabulary size={cfg.model.vocab_size}")
 
     pl_model = GPTLitModule(cfg)
 
@@ -88,7 +88,7 @@ def main(cfg: DictConfig) -> None:
         lr_decay = LearningRateDecayCallback(
             learning_rate=cfg.trainer.learning_rate,
             warmup_tokens=cfg.trainer.warmup_tokens,
-            decay_tokens=cfg.trainer.decay_tokens, # = 2 * len(train_dataset) * cfg.gpt.block_size
+            decay_tokens=cfg.trainer.decay_tokens, # = 2 * len(train_dataset) * cfg.model.block_size
         )
         callback_list.append(lr_decay)
 
@@ -116,11 +116,10 @@ def main(cfg: DictConfig) -> None:
                          max_epochs=cfg.trainer.max_epochs,
                          val_check_interval=cfg.trainer.val_check_interval,
                          limit_val_batches=cfg.trainer.limit_val_batches,
-                         resume_from_checkpoint=cfg.resume_from_checkpoint,
                          callbacks=callback_list,
                          strategy='ddp',
                          logger=loggers_list)
-    trainer.fit(pl_model, _datamodule)
+    trainer.fit(pl_model, _datamodule, ckpt_path=cfg.resume_from_checkpoint)
 
     finish_time = datetime.datetime.now()
     rank_zero_info(f"================ {__file__} - Finished : {finish_time} -- elapsed: {finish_time-start_time}")

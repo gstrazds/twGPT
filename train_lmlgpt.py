@@ -122,16 +122,16 @@ def build_GPT(cfg):
     from labml.nn.transformers.mha import MultiHeadAttention
     from labml.nn.transformers.feed_forward import FeedForward
 
-    n_heads = cfg.transformer.n_heads
-    d_model = cfg.transformer.d_model
-    n_layers = cfg.transformer.n_layers
-    dropout_prob = cfg.transformer.dropout
-    n_vocab = cfg.transformer.n_vocab
-
+    n_heads = cfg.model.n_heads
+    d_model = cfg.model.d_embd
+    n_layers = cfg.model.n_layers
+    dropout_prob = cfg.model.dropout
+    vocab_size = cfg.model.vocab_size
+    d_ff = cfg.model.hidden_layer_multiplier * d_model
     self_attn = MultiHeadAttention(n_heads, d_model, dropout_prob=dropout_prob) #, bias: bool = True)
 
     feedforward = FeedForward(d_model,
-                              d_ff=4*d_model,   #cfg.transformer.d_ff,
+                              d_ff=d_ff,   #4*d_model,   #cfg.model.d_ff,
                               dropout=dropout_prob,
                               activation=nn.GELU())
 
@@ -143,11 +143,9 @@ def build_GPT(cfg):
                         dropout_prob=dropout_prob)
 
     encoder = Encoder(encoder_layer, n_layers=n_layers)
-    src_embed = EmbeddingsWithLearnedPositionalEncoding(d_model=d_model, n_vocab=n_vocab) #, max_len=5000)
-    generator = Generator(n_vocab=n_vocab, d_model=d_model)
+    src_embed = EmbeddingsWithLearnedPositionalEncoding(d_model=d_model, n_vocab=vocab_size) #, max_len=5000)
+    generator = Generator(n_vocab=vocab_size, d_model=d_model)
     model = GPT(encoder, src_embed, generator)
-                     # c.transformer.src_embed,
-                     # c.transformer.generator,)
 
     # model.init_weights()
     return model
@@ -176,20 +174,20 @@ class GPTLitModule(pl.LightningModule):
         super().__init__()
         self.save_hyperparameters(config)
 
-        assert config.transformer.d_model % config.transformer.n_heads == 0,\
-            f"embedding dim ({config.transformer.d_model}) should be a multiple of num heads ({config.transformer.n_heads})"
+        assert config.model.d_embd % config.model.n_heads == 0,\
+            f"embedding dim ({config.model.d_embd}) should be a multiple of num heads ({config.model.n_heads})"
 
         # self.model = GPT(
-        #                 Encoder(EncoderLayer(), n_layers=config.transformer.n_layers),
+        #                 Encoder(EncoderLayer(), n_layers=config.model.n_layers),
         #                 c.transformer.src_embed,
         #                 c.transformer.generator,)
         self.model = build_GPT(config)
-                        # d_model = config.transformer.d_model,
-                        # n_heads = config.transformer.n_heads,
-                        # n_layers = config.transformer.n_layers,
-                        # dropout = config.transformer.dropout,
-                        # d_ff = config.transformer.d_ff,
-                        # n_vocab = config.transformer.n_vocab,
+                        # d_model = config.model.d_embd,
+                        # n_heads = config.model.n_heads,
+                        # n_layers = config.model.n_layers,
+                        # dropout = config.model.dropout,
+                        # d_ff = config.model.d_ff,
+                        # n_vocab = config.model.vocab_size,
         self.criterion = torch.nn.CrossEntropyLoss()
         self.tokens = 0
         if self.model:
@@ -335,7 +333,7 @@ class GPTLitModule(pl.LightningModule):
         assert len(x.shape) == 1  # expecting a vector of len t
         x_in = torch.unsqueeze(x, 0)  #torch.unsqueeze(x,0) ##== x[None, ...]
         assert x_in.shape[0] == 1  # (b=1, t)
-        block_size = self.hparams.transformer.seq_len
+        block_size = self.hparams.model.block_size
         preds = sample(self.model, block_size, x_in, steps=n_samples, temperature=temperature, sample=randsampling, top_k=top_k)
         # self.memory = memory
         # print(f"sample_ahead: x_in.size={x_in.size()} preds.size={preds.size()}")
@@ -454,7 +452,7 @@ def main(cfg: DictConfig) -> None:
             num_workers=cfg.data.num_workers,
             seed=cfg.general.random_seed,
             batch_size=cfg.trainer.batch_size,
-            block_size=cfg.transformer.seq_len,
+            block_size=cfg.model.block_size,
             train_filtering=cfg.data.train_filtering,
             eval_filtering=cfg.data.eval_filtering, )
     else:
@@ -466,15 +464,15 @@ def main(cfg: DictConfig) -> None:
             num_workers=cfg.data.num_workers,
             seed=cfg.general.random_seed,
             batch_size=cfg.trainer.batch_size,
-            block_size=cfg.transformer.seq_len, )
+            block_size=cfg.model.block_size, )
 
     _datamodule.prepare_data()
     train_dataset = _datamodule.train_dataset
-    cfg.trainer.decay_tokens = 2 * len(train_dataset) * cfg.transformer.seq_len  # approx 2 epochs
-    cfg.transformer.n_vocab = _datamodule.vocab_size
+    cfg.trainer.decay_tokens = 2 * len(train_dataset) * cfg.model.block_size  # approx 2 epochs
+    cfg.model.vocab_size = _datamodule.vocab_size
 
     print(OmegaConf.to_yaml(cfg, resolve=True))
-    # print(f"Vocabulary size={cfg.fbt.n_vocab}")
+    # print(f"Vocabulary size={cfg.fbt.vocab_size}")
 
     pl_model = GPTLitModule(cfg)
 
@@ -511,10 +509,9 @@ def main(cfg: DictConfig) -> None:
                          max_epochs=cfg.trainer.max_epochs,
                          val_check_interval=cfg.trainer.val_check_interval,
                          limit_val_batches=cfg.trainer.limit_val_batches,
-                         resume_from_checkpoint=cfg.resume_from_checkpoint,
                          callbacks=callback_list)
     #torch.autograd.set_detect_anomaly(True)
-    trainer.fit(pl_model, _datamodule)
+    trainer.fit(pl_model, _datamodule, ckpt_path=cfg.resume_from_checkpoint)
 
     finish_time = datetime.datetime.now()
     print(f"================ train_lmlgpt.py - Finished : {finish_time} -- elapsed: {finish_time-start_time}")

@@ -13,7 +13,7 @@ class LearningRateDecayCallback(pl.Callback):
         self.warmup_tokens = warmup_tokens
         self.decay_tokens = decay_tokens
 
-    def on_train_batch_end(self, trainer, pl_module, outputs, batch, batch_idx, dataloader_idx):
+    def on_train_batch_end(self, trainer, pl_module, outputs, batch, batch_idx):
         # NOTE: uses y > pad_value to count tokens processed (assumes pad values are less than any actual token)
 
         optimizer = trainer.optimizers[0]

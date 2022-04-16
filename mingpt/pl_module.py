@@ -19,11 +19,11 @@ class GPTLitModule(pl.LightningModule):
         self.cmd_start_marker = None   # need to call set_cmd_markers() before running validation_step()
         self.cmd_end_marker = None
 
-        if config.gpt.use_xformers:
+        if config.model.use_xformers:
             from .model_xf import GPTxf
-            self.model = GPTxf(config.gpt)  # **config.gpt
+            self.model = GPTxf(config.model)  # **config.gpt
         else:
-            self.model = GPT(**config.gpt)
+            self.model = GPT(**config.model)
         # self.criterion = nn.CrossEntropyLoss()
         logger.info("number of parameters: %e", sum(p.numel() for p in self.model.parameters()))
         print(self.model)
@@ -203,7 +203,7 @@ class GPTLitModule(pl.LightningModule):
         x_in = x[None, ...]  # x.unsqueeze(0) -- increases tensor rank from 1 to 2 by adding a new dimension 0
                              # (consisting of just one row = the original tensor[which, in this case, was a vector])
 
-        preds = sample(self.model, self.hparams.gpt.block_size, x_in, steps=n_samples, temperature=temperature, sample=randsampling, top_k=top_k)
+        preds = sample(self.model, self.hparams.model.block_size, x_in, steps=n_samples, temperature=temperature, sample=randsampling, top_k=top_k)
         # print(f"sample_ahead: preds.size={preds.size()}")
         return preds.detach()[0]
 

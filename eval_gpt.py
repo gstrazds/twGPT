@@ -239,7 +239,7 @@ def main(cfg: DictConfig) -> None:
         num_workers=cfg.data.num_workers,
         seed=cfg.general.random_seed,
         batch_size=cfg.trainer.batch_size,
-        block_size=cfg.gpt.block_size,
+        block_size=cfg.model.block_size,
         train_filtering=cfg.data.train_filtering,
         eval_filtering=cfg.data.eval_filtering, )
 
@@ -247,9 +247,7 @@ def main(cfg: DictConfig) -> None:
     tokenizer = _datamodule.tokenizer
     train_dataset = _datamodule.train_dataset
     cfg.trainer.decay_tokens = 2 * len(train_dataset) * train_dataset.block_size
-    cfg.gpt.vocab_size = _datamodule.vocab_size
-
-    print("USING PyTorch Lightning")
+    cfg.model.vocab_size = _datamodule.vocab_size
 
     pl_model = GPTLitModule.load_from_checkpoint(checkpoint_path=cfg.eval.checkpoint)
     pl_model.set_cmd_markers(_datamodule.cmd_start_marker, _datamodule.cmd_end_marker)
@@ -260,7 +258,7 @@ def main(cfg: DictConfig) -> None:
             print("USING CUDA device=",cfg.gpus[0])
             pl_model.eval().cuda(device=cfg.gpus[0])
         else:
-            pl_model.eval().cuda(device=0)
+            pl_model.eval().cuda(device=cfg.gpus)
 
     # print(f"Training dataset length={len(_datamodule.train_dataset)} (raw:{len(_datamodule.train_dataset.data)})")
     # print(f"Validation dataset length={len(_datamodule.validation_dataset)} (raw:{len(_datamodule.validation_dataset.data)})")

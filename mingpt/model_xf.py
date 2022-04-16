@@ -26,23 +26,13 @@ class GPTxf(nn.Module):
     def __init__(self, config):
         super().__init__()
 
-        # input embedding stem
-        # self.tok_emb = nn.Embedding(config.vocab_size, config.n_embd)
-        # self.pos_emb = nn.Parameter(torch.zeros(1, config.block_size, config.n_embd))
-        # self.drop = nn.Dropout(config.embd_pdrop)
-
-        # transformer
-        # self.blocks = nn.Sequential(*[Block(config) for _ in range(config.n_layer)])
-        # mconf = GPTConfig(**config.gpt)    # n_layer=8, n_head=8, n_embd=512)
-        # self.model = GPT(mconf)
-
         # A list of the encoder or decoder blocks which constitute the Transformer.
-        # gpt:
+        # model:
         #     attention_type: scaled_dot_product
         #     block_size: 128  # spatial extent of the model for its context
-        #     n_layer: 8
-        #     n_head: 8
-        #     n_embd: 512
+        #     n_layers: 8
+        #     n_heads: 8
+        #     d_embd: 512
         #     embd_pdrop: 0.1
         #     resid_pdrop: 0.1
         #     mlp_pdrop: 0.1
@@ -54,8 +44,8 @@ class GPTxf(nn.Module):
             {
                 "reversible": False,  # Turn on to test the effect of using reversible layers
                 "block_type": "encoder",
-                "num_layers": config.n_layer,
-                "dim_model": config.n_embd,
+                "num_layers": config.n_layers,
+                "dim_model": config.d_embd,
                 "layer_norm_style": "pre",
                 "position_encoding_config": {
                     "name": "vocab",
@@ -63,7 +53,7 @@ class GPTxf(nn.Module):
                     "vocab_size": config.vocab_size,
                 },
                 "multi_head_config": {
-                    "num_heads": config.n_head,
+                    "num_heads": config.n_heads,
                     "residual_dropout": config.resid_pdrop,
                     "use_rotary_embeddings": True,
                     "attention": {
@@ -71,7 +61,7 @@ class GPTxf(nn.Module):
                         "dropout": config.attn_pdrop,
                         "causal": True,
                         "seq_len": config.block_size,
-                        "num_rules": config.n_head,
+                        "num_rules": config.n_heads,
                     },
                 },
                 "feedforward_config": {
@@ -86,8 +76,8 @@ class GPTxf(nn.Module):
         _cfg = xFormerConfig(xformer_config)
         self.xformer = xFormer.from_config(_cfg)
         # decoder head
-        self.ln_f = nn.LayerNorm(config.n_embd)
-        self.head = nn.Linear(config.n_embd, config.vocab_size, bias=False)
+        self.ln_f = nn.LayerNorm(config.d_embd)
+        self.head = nn.Linear(config.d_embd, config.vocab_size, bias=False)
 
         self.block_size = config.block_size
         self.apply(self._init_weights)

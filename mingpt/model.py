@@ -41,22 +41,22 @@ class CausalSelfAttention(nn.Module):
     explicit implementation here to show that there is nothing too scary here.
     """
 
-    def __init__(self, n_embd, block_size, n_head, attn_pdrop, resid_pdrop):
+    def __init__(self, d_embd, block_size, n_heads, attn_pdrop, resid_pdrop):
         super().__init__()
-        assert n_embd % n_head == 0
+        assert d_embd % n_heads == 0
         # key, query, value projections for all heads
-        self.key = nn.Linear(n_embd, n_embd)
-        self.query = nn.Linear(n_embd, n_embd)
-        self.value = nn.Linear(n_embd, n_embd)
+        self.key = nn.Linear(d_embd, d_embd)
+        self.query = nn.Linear(d_embd, d_embd)
+        self.value = nn.Linear(d_embd, d_embd)
         # regularization
         self.attn_drop = nn.Dropout(attn_pdrop)
         self.resid_drop = nn.Dropout(resid_pdrop)
         # output projection
-        self.proj = nn.Linear(n_embd, n_embd)
+        self.proj = nn.Linear(d_embd, d_embd)
         # causal mask to ensure that attention is only applied to the left in the input sequence
         self.register_buffer("mask", torch.tril(torch.ones(block_size, block_size))
                                      .view(1, 1, block_size, block_size))
-        self.n_head = n_head
+        self.n_head = n_heads
 
     def forward(self, x):
         B, T, C = x.size()  # batch size, sequence length, embedding dimensionality (n_embd)
@@ -81,15 +81,15 @@ class CausalSelfAttention(nn.Module):
 class Block(nn.Module):
     """ an unassuming Transformer block """
 
-    def __init__(self, n_embd, block_size, n_head, attn_pdrop, resid_pdrop):
+    def __init__(self, d_embd, block_size, n_heads, attn_pdrop, resid_pdrop):
         super().__init__()
-        self.ln1 = nn.LayerNorm(n_embd)
-        self.ln2 = nn.LayerNorm(n_embd)
-        self.attn = CausalSelfAttention(n_embd, block_size, n_head, attn_pdrop, resid_pdrop)
+        self.ln1 = nn.LayerNorm(d_embd)
+        self.ln2 = nn.LayerNorm(d_embd)
+        self.attn = CausalSelfAttention(d_embd, block_size, n_heads, attn_pdrop, resid_pdrop)
         self.mlp = nn.Sequential(
-            nn.Linear(n_embd, 4 * n_embd),
+            nn.Linear(d_embd, 4 * d_embd),
             nn.GELU(),
-            nn.Linear(4 * n_embd, n_embd),
+            nn.Linear(4 * d_embd, d_embd),
             nn.Dropout(resid_pdrop),
         )
 
@@ -103,11 +103,11 @@ class GPT(nn.Module):
     def __init__(self,
                  vocab_size: int,  # size of the vocabulary (number of possible tokens)
                  block_size: int,  # length of the model's context window in time
-                 n_layer: int,     # depth of the model; number of Transformer blocks in sequence
-                 n_embd: int,      # the "width" of the model, number of channels in each Transformer
-                 n_head: int,      # number of heads in each multi-head attention inside each Transformer block
+                 n_layers: int,  # depth of the model; number of Transformer blocks in sequence
+                 d_embd: int,  # the "width" of the model, number of channels in each Transformer
+                 n_heads: int,  # number of heads in each multi-head attention inside each Transformer block
                  embd_pdrop: float = 0.1,  # \in [0,1]: amount of dropout on input embeddings
-                 resid_pdrop: float = 0.1, # \in [0,1]: amount of dropout in each residual connection
+                 resid_pdrop: float = 0.1,  # \in [0,1]: amount of dropout in each residual connection
                  attn_pdrop: float = 0.1,  # \in [0,1]: amount of dropout on the attention matrix
                  **kwargs  # ignore any extra named args
                  ):
@@ -117,14 +117,14 @@ class GPT(nn.Module):
         logger.info(f"IGNORING EXTRA GPT() kwargs: {kwargs}")
 
         # input embedding stem
-        self.tok_emb = nn.Embedding(vocab_size, n_embd)
-        self.pos_emb = nn.Parameter(torch.zeros(1, block_size, n_embd))
+        self.tok_emb = nn.Embedding(vocab_size, d_embd)
+        self.pos_emb = nn.Parameter(torch.zeros(1, block_size, d_embd))
         self.drop = nn.Dropout(embd_pdrop)
         # transformer
-        self.blocks = nn.Sequential(*[Block(n_embd, block_size, n_head, attn_pdrop, resid_pdrop) for _ in range(n_layer)])
+        self.blocks = nn.Sequential(*[Block(d_embd, block_size, n_heads, attn_pdrop, resid_pdrop) for _ in range(n_layers)])
         # decoder head
-        self.ln_f = nn.LayerNorm(n_embd)
-        self.head = nn.Linear(n_embd, vocab_size, bias=False)
+        self.ln_f = nn.LayerNorm(d_embd)
+        self.head = nn.Linear(d_embd, vocab_size, bias=False)
 
         self.block_size = block_size
         self.apply(self._init_weights)

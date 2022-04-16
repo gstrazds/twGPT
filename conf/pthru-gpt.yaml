@@ -33,18 +33,20 @@ data:
   train_filtering: cmd_prompts  #cmd_tokens
   eval_filtering: cmd_prompts  #cmd_tokens  #cmd_prompts   #cmd_tokens
 
-gpt:
-  block_size: 128  # spatial extent of the model for its context
+model:
+  block_size: 128  # aka seq_len or 'attention window size'
   use_xformers: False
   attention_type: scaled_dot_product  # for xFormers framework
-  hidden_layer_multiplier: 4          # xFormers framework
-  n_layer: 7
-  n_head: 8
-  n_embd: 512
-  embd_pdrop: 0.1
-  resid_pdrop: 0.1
-  attn_pdrop: 0.1
-  mlp_pdrop: 0.1                  # for xFormers framework
+  n_layers: 7
+  n_heads: 8
+  d_embd: 512
+  hidden_layer_multiplier: 4          # used directly by xFormers framework
+  d_ff: 2048  # ${.hidden_layer_multiplier}*${.n_embd}  # FF layer of transformer block
+  dropout: 0.1
+  embd_pdrop: ${.dropout}
+  resid_pdrop: ${.dropout}
+  attn_pdrop: ${.dropout}
+  mlp_pdrop: ${.dropout}      # used by xFormers framework
   vocab_size: 0     # gets filled in after we load the vocabulary
 
 trainer:
@@ -62,7 +64,7 @@ trainer:
   lr_decay: true
   weight_decay: 0.1 # only applied on matmul weights
   warmup_tokens: 10240  #512*20
-  decay_tokens: 2000*${gpt.block_size} # 2*${len(dataset)}*${gpt.block_size}  # set by caller after loading training data
+  decay_tokens: 2000*${model.block_size} # 2*${len(dataset)}*${gpt.block_size}  # set by caller after loading training data
   show_samples: True
 
 eval:

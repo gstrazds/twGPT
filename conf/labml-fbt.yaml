@@ -3,8 +3,8 @@ defaults:
   - overrides: null   # can add arbitrary config files in conf/overrides/ to override values listed here
 
 train_ftwc: True
-resume_from_checkpoint: /home/guntis/work/0_magd3/tw13/minGPT/outputs/2021-05-04/07-27-03/lightning_logs/version_0/checkpoints/lmlfbt-epoch=0-step=1739-train_loss_step=0.074-val_loss=0.220.ckpt
-#resume_from_checkpoint: null
+#resume_from_checkpoint: /home/guntis/work/0_magd3/tw13/minGPT/outputs/2021-05-04/07-27-03/lightning_logs/version_0/checkpoints/lmlfbt-epoch=0-step=1739-train_loss_step=0.074-val_loss=0.220.ckpt
+resume_from_checkpoint: null
 
 gpus:   # set to a single int n to auto-select n gpus from all available, or to a list of gpu indices e.g. [0,1,2,3]
   - 0   # this is a list: [0,]
@@ -28,15 +28,16 @@ data:
   train_filtering: cmd_tokens  #TODO: cmd_prompts  (but first impl auto)block_len
   eval_filtering: cmd_tokens   #TODO: cmd_prompts
 
-transformer:    # Feedback Transformer
-  d_model: 512    # n_embd
+model:    # Feedback Transformer
+  d_embd: 512    # n_embd
   n_heads: 8
   n_layers: 5
   dropout: 0.1    # embd_pdrop, resid_pdrop, attn_pdrop
-  # d_ff: 2048    # 4*${transformer.d_model}   # 2048 = 4 * d_model -- FF layer of transformer encoder block
-  seq_len: 512    # aka block_size or 'attention window size'
-  max_steps: 5000  # max positional encoding or memory length for Feecback Transformer
-  n_vocab:  20000 # number of unique token ids -- set/updated after we load the vocabulary
+  hidden_layer_multiplier: 4          # used directly by xFormers framework
+  d_ff: 2048  # ${.hidden_layer_multiplier}*${.n_embd}  # FF layer of transformer block
+  block_size: 512    # aka block_size or 'attention window size'
+  max_steps: 5000  # max positional encoding or memory length for Feedback Transformer
+  vocab_size:  20000 # number of unique token ids -- set/updated after we load the vocabulary
 
 trainer:
   max_epochs: 5

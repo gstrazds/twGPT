@@ -163,17 +163,18 @@ class FTLitModule(pl.LightningModule):
         super().__init__()
         self.save_hyperparameters(config)
 
-        assert config.transformer.d_model % config.transformer.n_heads == 0,\
-            f"embedding dim ({config.transformer.d_model}) should be a multiple of num heads ({config.transformer.n_heads})"
+        assert config.model.d_embd % config.model.n_heads == 0,\
+            f"embedding dim ({config.model.d_embd}) should be a multiple of num heads ({config.model.n_heads})"
 
+        d_ff = config.model.hidden_layer_multiplier * config.model.d_embd
         self.model = feedback_transformer_kv(
-                        d_model=config.transformer.d_model,
-                        n_heads=config.transformer.n_heads,
-                        n_layers=config.transformer.n_layers,
-                        dropout=config.transformer.dropout,
-                        d_ff=4*config.transformer.d_model,  #config.transformer.d_ff,
-                        n_vocab=config.transformer.n_vocab,
-                        max_mem=config.transformer.max_steps,
+                        d_model=config.model.d_embd,
+                        n_heads=config.model.n_heads,
+                        n_layers=config.model.n_layers,
+                        dropout=config.model.dropout,
+                        d_ff=d_ff,  #config.model.d_ff,
+                        n_vocab=config.model.vocab_size,
+                        max_mem=config.model.max_steps,
                 )
         #self._memory = None
         self.criterion = torch.nn.CrossEntropyLoss()
@@ -326,7 +327,7 @@ class FTLitModule(pl.LightningModule):
         x_in = torch.unsqueeze(x, -1)  #torch.unsqueeze(x,0) ##== x[None, ...]
         assert x_in.shape[1] == 1  # (t, b=1)
         preds = sample(self.model, x_in, steps=n_samples, temperature=temperature, sample=randsampling, top_k=top_k,
-                       block_size=None)  #self.hparams.transformer.seq_len)
+                       block_size=None)  #self.hparams.model.block_size)
         # preds.shape == (t+n_samples, 1)
         # print(f"sample_ahead: x_in.size={x_in.size()} preds.size={preds.size()}")
         return preds.squeeze()  # get rid of empty batch dim and return a simple vector
@@ -435,26 +436,6 @@ def main(cfg: DictConfig) -> None:
     start_time = datetime.datetime.now()
     print(f"======================================= train_fbt.py - Start time: {start_time}\n{os.getcwd()}\n")
 
-    conf_json =\
-                {'tokenizer': 'character',
-                'text': 'tiny_shakespeare',
-                'optimizer.learning_rate': 1.0,
-                'optimizer.optimizer': 'Noam',
-                'prompt': 'It is',
-                'prompt_separator': '',
-
-                # Use `feedback_transformer` for original feedback transformer
-                'model': 'feedback_transformer_kv',
-
-                'train_loader': 'shuffled_train_loader',
-                'valid_loader': 'shuffled_valid_loader',
-
-                'seq_len': 128,
-                'epochs': 128,
-                'batch_size': 64,
-                'inner_iterations': 25}
-#  )
-
     if cfg.train_ftwc:
         model_data_id = 'lmlfbt'
         _datamodule = PlaythroughDataModule(
@@ -464,7 +445,7 @@ def main(cfg: DictConfig) -> None:
             num_workers=cfg.data.num_workers,
             seed=cfg.general.random_seed,
             batch_size=cfg.trainer.batch_size,
-            block_size=cfg.transformer.seq_len,
+            block_size=cfg.model.block_size,
             train_filtering=cfg.data.train_filtering,
             eval_filtering=cfg.data.eval_filtering, )
     else:
@@ -476,15 +457,15 @@ def main(cfg: DictConfig) -> None:
             num_workers=cfg.data.num_workers,
             seed=cfg.general.random_seed,
             batch_size=cfg.trainer.batch_size,
-            block_size=cfg.transformer.seq_len, )
+            block_size=cfg.model.block_size, )
 
     _datamodule.prepare_data()
     train_dataset = _datamodule.train_dataset
-    cfg.trainer.decay_tokens = 2 * len(train_dataset) * cfg.transformer.seq_len  # approx 2 epochs
-    cfg.transformer.n_vocab = _datamodule.vocab_size
+    cfg.trainer.decay_tokens = 2 * len(train_dataset) * cfg.model.block_size  # approx 2 epochs
+    cfg.model.vocab_size = _datamodule.vocab_size
 
     print(OmegaConf.to_yaml(cfg, resolve=True))
-    # print(f"Vocabulary size={cfg.fbt.n_vocab}")
+    # print(f"Vocabulary size={cfg.fbt.vocab_size}")
 
     pl_model = FTLitModule(cfg)
 
@@ -522,11 +503,10 @@ def main(cfg: DictConfig) -> None:
                          max_epochs=cfg.trainer.max_epochs,
                          val_check_interval=cfg.trainer.val_check_interval,
                          limit_val_batches=cfg.trainer.limit_val_batches,
-                         resume_from_checkpoint=cfg.resume_from_checkpoint,
                          callbacks=callback_list)
 
     # torch.autograd.set_detect_anomaly(True)
-    trainer.fit(pl_model, _datamodule)
+    trainer.fit(pl_model, _datamodule, ckpt_path=cfg.resume_from_checkpoint)
 
     finish_time = datetime.datetime.now()
     print(f"================ train_fbt.py - Finished : {finish_time} -- elapsed: {finish_time-start_time}")
