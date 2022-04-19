@@ -85,7 +85,6 @@ class GPTxf(nn.Module):
         # self.criterion = nn.CrossEntropyLoss()
         # self._tokens_seen = 0
 
-
     def get_block_size(self):
         return self.block_size
 
@@ -97,7 +96,6 @@ class GPTxf(nn.Module):
         elif isinstance(module, nn.LayerNorm):
             module.bias.data.zero_()
             module.weight.data.fill_(1.0)
-
 
     def forward(self, tokids):   #, targets=None):
         # b, t = tokids.size()

@@ -18,12 +18,22 @@ class GPTLitModule(pl.LightningModule):
         self.save_hyperparameters(config)
         self.cmd_start_marker = None   # need to call set_cmd_markers() before running validation_step()
         self.cmd_end_marker = None
+        self.transpose_batches = False
 
-        if config.model.use_xformers:
+        if config.use_framework == 'xf':
             from .model_xf import GPTxf
             self.model = GPTxf(config.model)  # **config.gpt
-        else:
+        elif config.use_framework == 'lml':
+            from .model_lml import GPT_lml
+            self.model = GPT_lml(config.model)  # **config.gpt
+            self.transpose_batches = True
+        elif config.use_framework == 'hf':
+            assert False, "hf not yet implemented"
+        elif config.use_framework == 'mingpt':
             self.model = GPT(**config.model)
+        else:
+            assert False, f"UNKNOWN framework '{config.use_framework}'"
+
         # self.criterion = nn.CrossEntropyLoss()
         logger.info("number of parameters: %e", sum(p.numel() for p in self.model.parameters()))
         print(self.model)
@@ -59,7 +69,10 @@ class GPTLitModule(pl.LightningModule):
             assert len(batch) == 2, "Expecting each training batch to be a tuple of x,y,(padding) "+int(len(batch))
             x, targets = batch
 
-        #logits, loss = self.model(x, targets)
+        if self.transpose_batches:
+            x = x.T.contiguous()
+            targets = targets.T.contiguous()
+
         logits = self.model(x)
         loss = F.cross_entropy(logits.view(-1, logits.size(-1)), targets.view(-1))
 
@@ -74,6 +87,11 @@ class GPTLitModule(pl.LightningModule):
             assert len(batch) == 2, "Expecting each training batch to be a tuple of x,y,(padding) "+int(len(batch))
             batch_x, batch_y = batch
 
+        if self.transpose_batches:
+            batch_x = batch_x.T.contiguous()
+            batch_y = batch_y.T.contiguous()
+            # batch_cmd_pos = batch_cmd_pos.T.contiguous()
+
         #logits, loss = self.model(batch_x, batch_y)
         logits = self.model(batch_x)
         # loss = F.cross_entropy(logits, batch_y)
@@ -86,28 +104,29 @@ class GPTLitModule(pl.LightningModule):
         n_matched_tokens = 0
         n_cmds = 0
         n_matched_cmds = 0
-        if self.hparams.data.eval_filtering == 'cmd_prompts':
-            assert batch_cmd_pos is not None
-            #print(f"logits.shape={logits.shape}")
-            for x, y, cmd_pos, pred in zip(batch_x, batch_y, batch_cmd_pos, logits):
-                #print(f"calc_cmd_acc: len(x,y)=({len(x),len(y)})\n   x={x}\n  y={y}" )
-                #print(f"pred.shape={pred.shape}")
+        if not self.transpose_batches:
+            if self.hparams.data.eval_filtering == 'cmd_prompts':
+                assert batch_cmd_pos is not None
+                #print(f"logits.shape={logits.shape}")
+                for x, y, cmd_pos, pred in zip(batch_x, batch_y, batch_cmd_pos, logits):
+                    #print(f"calc_cmd_acc: len(x,y)=({len(x),len(y)})\n   x={x}\n  y={y}" )
+                    #print(f"pred.shape={pred.shape}")
 
-                n_toks, n_matched, predicted, y_trunc = \
-                    self.calc_cmd_acc(int(cmd_pos), x, y, predicted=pred)
-                n_cmd_tokens += n_toks
-                n_matched_tokens += n_matched
-                n_cmds += 1
-                if n_matched == n_toks:
-                    n_matched_cmds += 1
-        self.log('n_cmd_toks', n_cmd_tokens, on_step=True, on_epoch=True, prog_bar=False)
-        metrics['n_cmd_toks'] = n_cmd_tokens
-        self.log('n_toks_matched', n_matched_tokens, on_step=True, on_epoch=True, prog_bar=False)
-        metrics['n_toks_matched'] = n_matched_tokens
-        self.log('n_cmds', n_cmds, on_step=True, on_epoch=True, prog_bar=True)
-        metrics['n_cmds'] = n_cmds
-        self.log('cmd_exact_match', n_matched_cmds, on_step=True, on_epoch=True, prog_bar=True)
-        metrics['cmd_exact_match'] = n_matched_cmds
+                    n_toks, n_matched, predicted, y_trunc = \
+                        self.calc_cmd_acc(int(cmd_pos), x, y, predicted=pred)
+                    n_cmd_tokens += n_toks
+                    n_matched_tokens += n_matched
+                    n_cmds += 1
+                    if n_matched == n_toks:
+                        n_matched_cmds += 1
+            self.log('n_cmd_toks', n_cmd_tokens, on_step=True, on_epoch=True, prog_bar=False)
+            metrics['n_cmd_toks'] = n_cmd_tokens
+            self.log('n_toks_matched', n_matched_tokens, on_step=True, on_epoch=True, prog_bar=False)
+            metrics['n_toks_matched'] = n_matched_tokens
+            self.log('n_cmds', n_cmds, on_step=True, on_epoch=True, prog_bar=True)
+            metrics['n_cmds'] = n_cmds
+            self.log('cmd_exact_match', n_matched_cmds, on_step=True, on_epoch=True, prog_bar=True)
+            metrics['cmd_exact_match'] = n_matched_cmds
         return metrics
 
     def validation_epoch_end(self, outs):
@@ -238,6 +257,10 @@ def eval_predict_cmd_tokens(trainer, pl_module:GPTLitModule, dataset, tokenizer=
             # print(f"get_token_idxs(igame={igame}, 0, end_step={istep})  {_span_debug}")
             # print(dataset.data[_span_debug[0]:_span_debug[1]+1])
             x, y, cmd_start_pos = dataset.get_cmd_prompt_for_gamestep(igame, istep, continuation=-1)
+            if pl_module.transpose_batches:
+                x = x.T.contiguous()
+                y = y.T.contiguous()
+                #print("cmd_start_pos:", cmd_start_pos)
             # print( x[cmd_start_pos].item() )
 
             cmd_len, n_matched, predicted, y_trunc = pl_module.calc_cmd_acc(int(cmd_start_pos), x, y)

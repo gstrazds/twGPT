@@ -1,6 +1,7 @@
 .ipynb_checkpoints/
 __pycache__/
 outputs/
+multirun/
 tmp/
 bak/
 saved_models/
