@@ -29,7 +29,7 @@ class PlaythroughDataset(Dataset):
     TARGET_CMD_PROMPTS = "cmd_prompts"   # one data sample per step of each game (ending on the cmd_end token)
 
     def __init__(self, data, block_size, cmd_markers: Tuple[int,int] = None, game_start_tok:int = None,
-                 pad_tok:int=0, span_filtering=None, batch_size=1):
+                 pad_tok:int=-100, span_filtering=None, batch_size=1):
         self.block_size = block_size
         self.batch_size = batch_size
         self.data = np.array(data)  # make a copy of the given list of token ids

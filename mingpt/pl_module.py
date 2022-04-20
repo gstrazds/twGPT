@@ -72,9 +72,22 @@ class GPTLitModule(pl.LightningModule):
         if self.transpose_batches:
             x = x.T.contiguous()
             targets = targets.T.contiguous()
+            # x and targets: shape(block_len,batch_len)
+        else:
+            # x and targets: shape(batch_len,block_len)
+            pass
 
+        #print(f"x.shape={x.shape} target.shape={targets.shape}")
         logits = self.model(x)
-        loss = F.cross_entropy(logits.view(-1, logits.size(-1)), targets.view(-1))
+        # logits: shape(block_len,batch_len,vocab_size) OR shape(batch_len,block_len,vocab_size)
+        #print(f"x.shape={x.shape} target.shape={targets.shape} => logits.shape={logits.shape}")
+        logits_view = logits.view(-1, logits.size(-1))
+        targets_view = targets.view(-1)
+        #print(f"::::   logits_view:{logits_view.shape} t_view:{targets_view.shape}")
+        # at this point, batch x block_len dimensions have been collapsed into one big sequence:
+        # ::::  logits.view: size(txb, vocab_size)  targets.view: size(txb)
+        # multi-class cross entropy: # classes = vocab_size. Each token in (bxt) is scored independently
+        loss = F.cross_entropy(logits_view, targets_view, ignore_index=-100)
 
         self.log('train_loss', loss, on_step=True, on_epoch=True, prog_bar=True)
         return {"loss": loss}
@@ -95,7 +108,7 @@ class GPTLitModule(pl.LightningModule):
         #logits, loss = self.model(batch_x, batch_y)
         logits = self.model(batch_x)
         # loss = F.cross_entropy(logits, batch_y)
-        loss = F.cross_entropy(logits.view(-1, logits.size(-1)), batch_y.view(-1))
+        loss = F.cross_entropy(logits.view(-1, logits.size(-1)), batch_y.view(-1), ignore_index=-100)
 
         self.log('val_loss', loss, on_step=True, on_epoch=True, prog_bar=True)
         metrics = {'val_loss': loss} #, 'val_acc': acc}
@@ -104,7 +117,11 @@ class GPTLitModule(pl.LightningModule):
         n_matched_tokens = 0
         n_cmds = 0
         n_matched_cmds = 0
-        if not self.transpose_batches:   # TODO: fix the following
+        if self.transpose_batches:   # TODO: fix when transpose_batches == True
+            batch_x = batch_x.T.contiguous()  # swap 1st 2 dims back to original order (batch_len, block_len)
+            batch_y = batch_y.T.contiguous()
+            logits = logits.T.contiguous()
+        if True:
             if self.hparams.data.eval_filtering == 'cmd_prompts':
                 assert batch_cmd_pos is not None
                 #print(f"logits.shape={logits.shape}")
@@ -258,6 +275,14 @@ def sampleT(model, block_size, x, steps, temperature=1.0, sample=False, top_k=No
         ix = tokid_from_logits(logits, temperature=temperature, sample=sample, top_k=top_k)
         x = torch.cat((x, ix), dim=-1)  #
     return x  # NOTE: returned tensor has shape (b,t_orig+steps)
+
+def sample0():
+    x_cond = x if x.size(1) <= block_size else x[:, -block_size:]  # crop context if needed
+    logits = model(x_cond)
+    logits = logits[:, -1, :]  # use the logits from the last seq pos
+    ix = tokid_from_logits(logits, temperature=temperature, sample=sample, top_k=top_k)
+    # append to the sequence and continue
+    x = torch.cat((x, ix), dim=1)
 
 
 def eval_predict_cmd_tokens(trainer, pl_module:GPTLitModule, dataset, tokenizer=None):
