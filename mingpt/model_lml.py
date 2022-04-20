@@ -88,13 +88,8 @@ class GPT_lml(nn.Module):
         #     assert False, f"Cannot forward, model block size is exhausted: {t} ! <= {self.block_size}"
 
         # # forward the GPT model
+        # (second return value is for state, since lml trainer is used with RNNs also)
         logits, _ = self.gpt(tokids)
-
-        # # if we are given some desired targets also calculate the loss
-        # loss = None
-        # if targets is not None:
-        #     loss = F.cross_entropy(logits.view(-1, logits.size(-1)), targets.view(-1))
-
         return logits #, loss
 
     def get_param_groups(self, weight_decay: float):

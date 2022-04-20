@@ -30,8 +30,8 @@ data:
   test_file: ${cwd_path}/gata-test-all.pthru #${cwd_path}/mingpt-test-all.pthru
   tokenizer_file: ${cwd_path}/ftwc_tokenizer.json
   num_workers: 8
-  train_filtering: cmd_prompts  #cmd_tokens
-  eval_filtering: cmd_prompts  #cmd_tokens  #cmd_prompts   #cmd_tokens
+  train_filtering: cmd_prompts  # cmd_tokens, cmd_prompts
+  eval_filtering: ${data.train_filtering}
 
 model:
   arch: gpt

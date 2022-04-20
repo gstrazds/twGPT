@@ -38,7 +38,7 @@ from mingpt.pthru_dataset import PlaythroughDataModule
 from mingpt.char_dataset import CharDataModule
 from mingpt.callback import CUDACallback
 from mingpt.lr_decay import LearningRateDecayCallback
-# from mingpt.utils import sample
+from mingpt.utils import tokid_from_logits
 
 logger = logging.getLogger(__name__)
 
@@ -60,17 +60,21 @@ def sample(model, block_size, x, steps, temperature=1.0, sample=False, top_k=Non
 
         logits, _ = model(x_cond)  # logits.shape = (t,b,v)
         # pluck the logits at the final step and scale by temperature
-        logits = logits[-1, :, :] / temperature  # shape = (b,v)
-        # optionally crop probabilities to only the top k options
-        if top_k is not None:
-            logits = top_k_logits(logits, top_k)
-        # apply softmax to convert to probabilities
-        probs = F.softmax(logits, dim=-1)  # (b,v)
-        # sample from the distribution or take the most likely
-        if sample:
-            ix = torch.multinomial(probs, num_samples=1)
-        else:
-            _, ix = torch.topk(probs, k=1, dim=-1)  # greedily choose the single largest
+        logits = logits[-1, :, :]
+        ix = tokid_from_logits(logits, temperature=temperature, sample=sample, top_k=top_k)
+
+        # logits = logits / temperature  # shape = (b,v)
+        # # optionally crop probabilities to only the top k options
+        # if top_k is not None:
+        #     logits = top_k_logits(logits, top_k)
+        # # apply softmax to convert to probabilities
+        # probs = F.softmax(logits, dim=-1)  # (b,v)
+        # # sample from the distribution or take the most likely
+        # if sample:
+        #     ix = torch.multinomial(probs, num_samples=1)
+        # else:
+        #     _, ix = torch.topk(probs, k=1, dim=-1)  # greedily choose the single largest
+
         # ix is a tensor shape=(b,1) of indices into the v (2nd) dimension of probs tensor
         # append to the sequence and continue
         x = torch.cat((x, ix), dim=-1)  #

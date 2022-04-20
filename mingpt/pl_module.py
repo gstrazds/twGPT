@@ -104,7 +104,7 @@ class GPTLitModule(pl.LightningModule):
         n_matched_tokens = 0
         n_cmds = 0
         n_matched_cmds = 0
-        if not self.transpose_batches:
+        if not self.transpose_batches:   # TODO: fix the following
             if self.hparams.data.eval_filtering == 'cmd_prompts':
                 assert batch_cmd_pos is not None
                 #print(f"logits.shape={logits.shape}")
@@ -186,6 +186,8 @@ class GPTLitModule(pl.LightningModule):
         if predicted is None:
             predict_out = self.sample_ahead(x_trunc, n_samples=cmd_len, temperature=1.0, randsampling=False,
                                            top_k=None)
+            if self.transpose_batches:
+                predict_out = predict_out.T
         else:
             out = []
             for x_ in x[0:cmd_start_pos+1]:
@@ -219,12 +221,43 @@ class GPTLitModule(pl.LightningModule):
         return cmd_len, n_matched, predict_out, y_trunc
 
     def sample_ahead(self, x, n_samples, temperature=1.0, randsampling=False, top_k=None):
-        x_in = x[None, ...]  # x.unsqueeze(0) -- increases tensor rank from 1 to 2 by adding a new dimension 0
-                             # (consisting of just one row = the original tensor[which, in this case, was a vector])
+        assert len(x.shape) == 1  # expecting a vector of len t
+        x_in = torch.unsqueeze(x, 0)  #torch.unsqueeze(x,0) ##== x[None, ...]
+        # x_in = x[None, ...]  # x.unsqueeze(0) -- increases tensor rank from 1 to 2 by adding a new dimension 0
+        #                      # (consisting of just one row = the original tensor[which, in this case, was a vector])
+        assert x_in.shape[0] == 1  # (b=1, t)
+        block_size = self.hparams.model.block_size
+        if self.transpose_batches:
+            preds = sampleT(self.model, block_size, x_in, steps=n_samples, temperature=temperature, sample=randsampling,
+                           top_k=top_k)
+        else:
+            preds = sample(self.model, block_size, x_in, steps=n_samples, temperature=temperature, sample=randsampling, top_k=top_k)
+        # print(f"sample_ahead: x_in.size={x_in.size()} preds.size={preds.size()}")
+        # return preds.detach()[0]
+        return preds.detach().squeeze()  # reduce from (b=1,t) to a single dimension (a vector)
 
-        preds = sample(self.model, self.hparams.model.block_size, x_in, steps=n_samples, temperature=temperature, sample=randsampling, top_k=top_k)
-        # print(f"sample_ahead: preds.size={preds.size()}")
-        return preds.detach()[0]
+
+@torch.no_grad()
+def sampleT(model, block_size, x, steps, temperature=1.0, sample=False, top_k=None):
+    """
+    take a conditioning sequence of indices in x (of shape (b,t)) and predict the next token in
+    the sequence, feeding the predictions back into the model each time. Clearly the sampling
+    has quadratic complexity unlike an RNN that is only linear, and has a finite context window
+    of block_size, unlike an RNN that has an infinite context window.
+    """
+    # block_size = model.get_block_size()
+    # x.shape == (b,t_orig) [values are indices into vocab]
+    model.eval()
+    for k in range(steps):
+        x_cond = x if x.size(1) <= block_size else x[:, -block_size:] # crop context if needed
+        x_cond = x_cond.T.contiguous()  # shape (t,b) [values are indices into vocab]
+
+        logits = model(x_cond)  # logits.shape = (t,b,v)
+        # pluck the logits at the final step and scale by temperature
+        logits = logits[-1, :, :]
+        ix = tokid_from_logits(logits, temperature=temperature, sample=sample, top_k=top_k)
+        x = torch.cat((x, ix), dim=-1)  #
+    return x  # NOTE: returned tensor has shape (b,t_orig+steps)
 
 
 def eval_predict_cmd_tokens(trainer, pl_module:GPTLitModule, dataset, tokenizer=None):
@@ -238,7 +271,6 @@ def eval_predict_cmd_tokens(trainer, pl_module:GPTLitModule, dataset, tokenizer=
     #     if hasattr(trainer, "rank"):
     #         rank = trainer.rank
 
-    max_eval_games = 1000000  # infinity for all practical purposes
     max_eval_games = pl_module.hparams.trainer.limit_val_batches
 
     # for idx in range(1, len(dataset.cmd_spans)):   # skip the initial 'start' command
@@ -257,13 +289,14 @@ def eval_predict_cmd_tokens(trainer, pl_module:GPTLitModule, dataset, tokenizer=
             # print(f"get_token_idxs(igame={igame}, 0, end_step={istep})  {_span_debug}")
             # print(dataset.data[_span_debug[0]:_span_debug[1]+1])
             x, y, cmd_start_pos = dataset.get_cmd_prompt_for_gamestep(igame, istep, continuation=-1)
-            if pl_module.transpose_batches:
-                x = x.T.contiguous()
-                y = y.T.contiguous()
+            # if pl_module.transpose_batches:
+            #     x = x.T.contiguous()
+            #     y = y.T.contiguous()
                 #print("cmd_start_pos:", cmd_start_pos)
             # print( x[cmd_start_pos].item() )
 
-            cmd_len, n_matched, predicted, y_trunc = pl_module.calc_cmd_acc(int(cmd_start_pos), x, y)
+            cmd_len, n_matched, predicted, y_trunc = pl_module.calc_cmd_acc(int(cmd_start_pos), x, y,
+                                                                            predicted=None)
 
             if n_matched == cmd_len:
                 full_matches += 1
