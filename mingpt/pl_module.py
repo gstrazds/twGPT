@@ -11,6 +11,16 @@ from .model import GPT
 
 logger = logging.getLogger(__name__)
 
+
+def _swapped_first2(n_dims):
+    if n_dims == 1:
+        return [0]  # don't swap anything
+    dims = [1,0]
+    for i in range(2, n_dims):
+        dims.append(i)
+    return dims
+
+
 class GPTLitModule(pl.LightningModule):
     """  the full GPT language model, with a context size of block_size """
     def __init__(self, config):
@@ -70,8 +80,8 @@ class GPTLitModule(pl.LightningModule):
             x, targets = batch
 
         if self.transpose_batches:
-            x = x.T.contiguous()
-            targets = targets.T.contiguous()
+            x = x.permute(*_swapped_first2(len(x.shape))).contiguous()
+            targets = targets.permute(*_swapped_first2(len(targets.shape))).contiguous()
             # x and targets: shape(block_len,batch_len)
         else:
             # x and targets: shape(batch_len,block_len)
@@ -101,8 +111,8 @@ class GPTLitModule(pl.LightningModule):
             batch_x, batch_y = batch
 
         if self.transpose_batches:
-            batch_x = batch_x.T.contiguous()
-            batch_y = batch_y.T.contiguous()
+            batch_x = batch_x.permute(*_swapped_first2(len(batch_x.shape))).contiguous()
+            batch_y = batch_y.permute(*_swapped_first2(len(batch_y.shape))).contiguous()
             # batch_cmd_pos = batch_cmd_pos.T.contiguous()
 
         #logits, loss = self.model(batch_x, batch_y)
@@ -118,10 +128,11 @@ class GPTLitModule(pl.LightningModule):
         n_cmds = 0
         n_matched_cmds = 0
         if self.transpose_batches:   # TODO: fix when transpose_batches == True
-            batch_x = batch_x.T.contiguous()  # swap 1st 2 dims back to original order (batch_len, block_len)
-            batch_y = batch_y.T.contiguous()
-            logits = logits.T.contiguous()
+            batch_x = batch_x.permute(*_swapped_first2(len(batch_x.shape))).contiguous()  # swap 1st 2 dims back to original order (batch_len, block_len)
+            batch_y = batch_y.permute(*_swapped_first2(len(batch_y.shape))).contiguous()
+            logits = logits.permute(*_swapped_first2(len(logits.shape))).contiguous()
         if True:
+            # print(f"({self.hparams.data.eval_filtering})  batch_y.shape =", batch_y.shape, "logits.shape =", logits.shape)
             if self.hparams.data.eval_filtering == 'cmd_prompts':
                 assert batch_cmd_pos is not None
                 #print(f"logits.shape={logits.shape}")
@@ -185,15 +196,14 @@ class GPTLitModule(pl.LightningModule):
                     i_end_of_cmd = i
                     break
             cmd_len = i_end_of_cmd - cmd_start_pos
+        else: # self.hparams.data.eval_filtering != 'cmd_prompts':
+            cmd_len = len(x) - cmd_start_pos - 1
 
         x = x.to(self.device)
         y = y.to(self.device)
-        if self.hparams.data.eval_filtering != 'cmd_prompts':
-            cmd_len = len(x) - cmd_start_pos - 1
         x_trunc = x[0:int(cmd_start_pos) + 1]
         y_trunc = y[0:int(cmd_start_pos) + cmd_len]
-        # print(f"len(x)={len(x)}, cmd_start_pos={cmd_start_pos}" )
-        # print("cmd_len", cmd_len)
+        #print(f"len(x)={len(x)}, cmd_start_pos={cmd_start_pos} cmd_len={cmd_len}" )
         # print("x:", x)
         # print("x_trunc:", x_trunc)
         # print(f"len(x_trunc) = {len(x_trunc)}")
@@ -204,7 +214,7 @@ class GPTLitModule(pl.LightningModule):
             predict_out = self.sample_ahead(x_trunc, n_samples=cmd_len, temperature=1.0, randsampling=False,
                                            top_k=None)
             if self.transpose_batches:
-                predict_out = predict_out.T
+                predict_out = predict_out.permute(*_swapped_first2(len(predict_out.shape))).contiguous()
         else:
             out = []
             for x_ in x[0:cmd_start_pos+1]:
@@ -267,7 +277,7 @@ def sampleT(model, block_size, x, steps, temperature=1.0, sample=False, top_k=No
     model.eval()
     for k in range(steps):
         x_cond = x if x.size(1) <= block_size else x[:, -block_size:] # crop context if needed
-        x_cond = x_cond.T.contiguous()  # shape (t,b) [values are indices into vocab]
+        x_cond = x_cond.permute(*_swapped_first2(len(x_cond.shape))).contiguous()  # shape (t,b) [values are indices into vocab]
 
         logits = model(x_cond)  # logits.shape = (t,b,v)
         # pluck the logits at the final step and scale by temperature
