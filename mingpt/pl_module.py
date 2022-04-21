@@ -136,14 +136,14 @@ class GPTLitModule(pl.LightningModule):
                     n_cmds += 1
                     if n_matched == n_toks:
                         n_matched_cmds += 1
-            self.log('n_cmd_toks', n_cmd_tokens, on_step=True, on_epoch=True, prog_bar=False)
-            metrics['n_cmd_toks'] = n_cmd_tokens
-            self.log('n_toks_matched', n_matched_tokens, on_step=True, on_epoch=True, prog_bar=False)
-            metrics['n_toks_matched'] = n_matched_tokens
-            self.log('n_cmds', n_cmds, on_step=True, on_epoch=True, prog_bar=True)
-            metrics['n_cmds'] = n_cmds
-            self.log('cmd_exact_match', n_matched_cmds, on_step=True, on_epoch=True, prog_bar=True)
-            metrics['cmd_exact_match'] = n_matched_cmds
+                self.log('n_cmd_toks', n_cmd_tokens, on_step=True, on_epoch=True, prog_bar=False)
+                metrics['n_cmd_toks'] = n_cmd_tokens
+                self.log('n_toks_matched', n_matched_tokens, on_step=True, on_epoch=True, prog_bar=False)
+                metrics['n_toks_matched'] = n_matched_tokens
+                self.log('n_cmds', n_cmds, on_step=True, on_epoch=True, prog_bar=True)
+                metrics['n_cmds'] = n_cmds
+                self.log('cmd_exact_match', n_matched_cmds, on_step=True, on_epoch=True, prog_bar=True)
+                metrics['cmd_exact_match'] = n_matched_cmds
         return metrics
 
     def validation_epoch_end(self, outs):
