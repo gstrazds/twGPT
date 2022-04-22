@@ -23,7 +23,7 @@ def _swapped_first2(n_dims):
 
 class GPTLitModule(pl.LightningModule):
     """  the full GPT language model, with a context size of block_size """
-    def __init__(self, config):
+    def __init__(self, config, tokenizer=None):
         super().__init__()
         self.save_hyperparameters(config)
         self.cmd_start_marker = None   # need to call set_cmd_markers() before running validation_step()
@@ -38,7 +38,9 @@ class GPTLitModule(pl.LightningModule):
             self.model = GPT_lml(config.model)  # **config.gpt
             self.transpose_batches = True
         elif config.use_framework == 'hf':
-            assert False, "hf not yet implemented"
+            from .model_hf import GPThf
+            print("***** vocab_size:", config.model.vocab_size)
+            self.model = GPThf(config.model, tokenizer=tokenizer)  # **config.gpt
         elif config.use_framework == 'mingpt':
             self.model = GPT(**config.model)
         else:

@@ -66,7 +66,7 @@ def main(cfg: DictConfig) -> None:
     print(OmegaConf.to_yaml(cfg, resolve=True))
     # print(f"Vocabulary size={cfg.model.vocab_size}")
 
-    pl_model = GPTLitModule(cfg)
+    pl_model = GPTLitModule(cfg, tokenizer=None)  #_datamodule.tokenizer)
 
     pl_model.set_cmd_markers(_datamodule.cmd_start_marker, _datamodule.cmd_end_marker)
 
@@ -159,21 +159,6 @@ class SamplePredictions(Callback):
                 with open(self.out_dir +
                           f'cmd_acc_{trainer.current_epoch}-step{trainer.global_step:05d}_{cmd_token_acc:.4f}_{cmd_acc:.4f}.txt', 'w') as outfile:
                     outfile.write(f"{cmd_token_acc}\t{n_matched}\t{total_cmd_tokens}\t{cmd_acc}\t{full_matches}\t{num_cmds}\t{trainer.current_epoch}\t{trainer.global_step}")
-
-
-        # SAMPLE_LEN = 4
-        # for idx in range(self.how_many):
-        #     x, y = self.dataset[idx * 10]
-        #     x = x.to(pl_module.device)
-        #     # print(x, y)  #two tensors, identical except for offset by 1 postiion
-        #
-        #     x_trunc = x[:-(SAMPLE_LEN-1)]  # x is already 1 position behind y, so chop off only SAMPLE_LEN-1
-        #
-        #     predicted = pl_module.sample_ahead(x_trunc,
-        #                     n_samples=SAMPLE_LEN, temperature=1.0, randsampling=False, top_k=None)
-        #     y_predicted = predicted.cpu().tolist()
-        #     y_ids = y.detach().cpu().tolist()
-        #     show_sample(self.tokenizer, idx*10, y_predicted, y_ids, n_sampled=SAMPLE_LEN)
 
 
 
