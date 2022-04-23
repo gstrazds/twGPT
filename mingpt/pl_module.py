@@ -41,6 +41,10 @@ class GPTLitModule(pl.LightningModule):
             from .model_hf import GPThf
             print("***** vocab_size:", config.model.vocab_size)
             self.model = GPThf(config.model, tokenizer=tokenizer)  # **config.gpt
+        elif config.use_framework == 'gpt2':
+            from .model_gpt2 import GPT2hf
+            print("***** vocab_size:", config.model.vocab_size)
+            self.model = GPT2hf(config.model, tokenizer=tokenizer)
         elif config.use_framework == 'mingpt':
             self.model = GPT(**config.model)
         else:
