@@ -9,11 +9,64 @@ summary: This is training code with notes for a feedback transformer.
 This trains a [feedback transformer](index.html) model for auto-regression.
 You can pick the original feedback transformer or the new version
 where the keys and values are precalculated.
+GPThf(
+  (gpt): OpenAIGPTLMHeadModel(
+    (transformer): OpenAIGPTModel(
+      (tokens_embed): Embedding(157, 768)
+      (positions_embed): Embedding(128, 768)
+      (drop): Dropout(p=0.1, inplace=False)
+      (h): ModuleList(
+        (0): Block(
+          (attn): Attention(
+            (c_attn): Conv1D()
+            (c_proj): Conv1D()
+            (attn_dropout): Dropout(p=0.1, inplace=False)
+            (resid_dropout): Dropout(p=0.1, inplace=False)
+          )
+          (ln_1): LayerNorm((768,), eps=1e-05, elementwise_affine=True)
+          (mlp): MLP(
+            (c_fc): Conv1D()
+            (c_proj): Conv1D()
+            (dropout): Dropout(p=0.1, inplace=False)
+          )
+          (ln_2): LayerNorm((768,), eps=1e-05, elementwise_affine=True)
+        )
+        (1): Block(
+          (attn): Attention(
+            (c_attn): Conv1D()
+            (c_proj): Conv1D()
+            (attn_dropout): Dropout(p=0.1, inplace=False)
+            (resid_dropout): Dropout(p=0.1, inplace=False)
+          )
+          (ln_1): LayerNorm((768,), eps=1e-05, elementwise_affine=True)
+          (mlp): MLP(
+            (c_fc): Conv1D()
+            (c_proj): Conv1D()
+            (dropout): Dropout(p=0.1, inplace=False)
+          )
+          (ln_2): LayerNorm((768,), eps=1e-05, elementwise_affine=True)
+        )
+        (2): Block(
+          (attn): Attention(
+            (c_attn): Conv1D()
+            (c_proj): Conv1D()
+            (attn_dropout): Dropout(p=0.1, inplace=False)
+            (resid_dropout): Dropout(p=0.1, inplace=False)
+          )
+          (ln_1): LayerNorm((768,), eps=1e-05, elementwise_affine=True)
+          (mlp): MLP(
+            (c_fc): Conv1D()
+            (c_proj): Conv1D()
+            (dropout): Dropout(p=0.1, inplace=False)
+          )
+          (ln_2): LayerNorm((768,), eps=1e-05, elementwise_affine=True)
+        )
+      )
+    )
+    (lm_head): Linear(in_features=768, out_features=157, bias=False)
+  )
+)
 
-Here's a Colab notebook for training a feedback transformer on Tiny Shakespeare dataset.
-
-[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/lab-ml/nn/blob/master/labml_nn/transformers/feedback/experiment.ipynb)
-[![View Run](https://img.shields.io/badge/labml-experiment-brightgreen)](https://app.labml.ai/run/d8eb9416530a11eb8fb50242ac1c0002)
 """
 
 import logging
@@ -87,7 +140,7 @@ class GPThf(nn.Module):
         #     "vocab_size": 40478
         # }
 
-        hfconfig.d_embd = config.d_embd
+        hfconfig.n_embd = config.d_embd
         hfconfig.n_head = config.n_heads
         hfconfig.n_layer = config.n_layers
         hfconfig.attn_pdrop = config.attn_pdrop
