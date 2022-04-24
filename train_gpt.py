@@ -16,7 +16,7 @@ from pytorch_lightning.utilities import rank_zero_info
 
 from mingpt.pthru_dataset import PlaythroughDataModule
 from mingpt.char_dataset import CharDataModule
-from mingpt.pl_module import GPTLitModule, eval_predict_cmd_tokens
+from mingpt.pl_module import GPTLitModule, eval_predict_cmd_tokens, PADDING_INDEX
 from mingpt.callback import CUDACallback
 from mingpt.lr_decay import LearningRateDecayCallback
 
@@ -57,6 +57,7 @@ def main(cfg: DictConfig) -> None:
             block_size=cfg.model.block_size, )
 
     _datamodule.prepare_data()
+    assert PADDING_INDEX == _datamodule.pad_tok, f"PADDING TOKEN index = {_datmodule.pad_tok} (should be {PADDING_INDEX})"
     train_dataset = _datamodule.train_dataset
 
     # dynamically set some config/hparam values (ensures that they get saved with results of each run)

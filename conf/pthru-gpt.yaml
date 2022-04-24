@@ -31,7 +31,7 @@ data:
   tokenizer_file: ${cwd_path}/ftwc_tokenizer.json
   num_workers: 8
   train_filtering: cmd_prompts  # cmd_tokens, cmd_prompts
-  eval_filtering: ${data.train_filtering}
+  eval_filtering: cmd_prompts  #${data.train_filtering}
 
 model:
   arch: gpt

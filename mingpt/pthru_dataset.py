@@ -19,7 +19,7 @@ from pytorch_lightning import LightningDataModule
 CMD_START_TOKEN = '>>>['
 CMD_END_TOKEN = ']<<<'
 GAME_START_CMD = 'start'
-
+PAD_TOKEN = '<PAD>'
 
 def _span_len(span):
     return span[1]-span[0]+1
@@ -29,7 +29,7 @@ class PlaythroughDataset(Dataset):
     TARGET_CMD_PROMPTS = "cmd_prompts"   # one data sample per step of each game (ending on the cmd_end token)
 
     def __init__(self, data, block_size, cmd_markers: Tuple[int,int] = None, game_start_tok:int = None,
-                 pad_tok:int=-100, span_filtering=None, batch_size=1):
+                 pad_tok:int=0, span_filtering=None, batch_size=1):
         self.block_size = block_size
         self.batch_size = batch_size
         self.data = np.array(data)  # make a copy of the given list of token ids
@@ -209,8 +209,8 @@ class PlaythroughDataset(Dataset):
 
             elif self.span_filtering == PlaythroughDataset.TARGET_CMD_TOKENS:
                 start_idx, end_idx = self._index_by_idx[idx]
-                #return self.get_left_padded_block(start_idx, end_idx)
-                return self.get_right_padded_block(start_idx, end_idx)
+                return self.get_left_padded_block(start_idx, end_idx)
+                #return self.get_right_padded_block(start_idx, end_idx)
             #else:
             assert False, f"UNSUPPORTED span_filtering={self.span_filtering} ({idx}:{self._index[idx]})"
             idx = self._index_by_idx[idx]
@@ -429,6 +429,7 @@ class PlaythroughDataModule(LightningDataModule):
         self.vocab_dict = {}
         self.cmd_start_marker = None
         self.cmd_end_marker = None
+        self.pad_tok = None
         self.train_filtering = train_filtering
         self.eval_filtering = eval_filtering
 
@@ -448,6 +449,8 @@ class PlaythroughDataModule(LightningDataModule):
         self.cmd_start_marker = self.tokenizer.token_to_id(CMD_START_TOKEN)
         self.cmd_end_marker = self.tokenizer.token_to_id(CMD_END_TOKEN)
         self.game_start_tok = self.tokenizer.token_to_id(GAME_START_CMD)
+        self.pad_tok = self.tokenizer.token_to_id(PAD_TOKEN)
+
         if not self.vocab_size:
             self.vocab_size = len(self.vocab_dict)
             # self.vocab_size = self.tokenizer.get_vocab_size(with_added_tokens=True)  # this seems to be wrong!
@@ -461,6 +464,7 @@ class PlaythroughDataModule(LightningDataModule):
         self.train_dataset = PlaythroughDataset(encoded_data.ids, self.block_size,
                                                 cmd_markers=cmd_markers,
                                                 game_start_tok=self.game_start_tok,
+                                                pad_tok=self.pad_tok,
                                                 span_filtering=self.train_filtering,  #PlaythroughDataset.TARGET_CMD_TOKENS)
                                                 batch_size=self.batch_size)
 
@@ -472,6 +476,7 @@ class PlaythroughDataModule(LightningDataModule):
             self.validation_dataset = PlaythroughDataset(eval_encoded.ids, self.block_size,
                                                          cmd_markers=cmd_markers,
                                                          game_start_tok=self.game_start_tok,
+                                                         pad_tok=self.pad_tok,
                                                          span_filtering=self.eval_filtering,     #PlaythroughDataset.TARGET_CMD_TOKENS)
                                                          batch_size=batch_size)
                                         #    span_filtering = PlaythroughDataset.TARGET_CMD_PROMPTS)  # eval accuracy

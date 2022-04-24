@@ -11,6 +11,7 @@ from .model import GPT
 
 logger = logging.getLogger(__name__)
 
+PADDING_INDEX = 0  # -100 is ignored by default in cross_entropy
 
 def _swapped_first2(n_dims):
     if n_dims == 1:
@@ -103,7 +104,7 @@ class GPTLitModule(pl.LightningModule):
         # at this point, batch x block_len dimensions have been collapsed into one big sequence:
         # ::::  logits.view: size(txb, vocab_size)  targets.view: size(txb)
         # multi-class cross entropy: # classes = vocab_size. Each token in (bxt) is scored independently
-        loss = F.cross_entropy(logits_view, targets_view, ignore_index=-100)
+        loss = F.cross_entropy(logits_view, targets_view, ignore_index=PADDING_INDEX)  #-100)
 
         self.log('train_loss', loss, on_step=True, on_epoch=True, prog_bar=True)
         return {"loss": loss}
@@ -124,7 +125,7 @@ class GPTLitModule(pl.LightningModule):
         #logits, loss = self.model(batch_x, batch_y)
         logits = self.model(batch_x)
         # loss = F.cross_entropy(logits, batch_y)
-        loss = F.cross_entropy(logits.view(-1, logits.size(-1)), batch_y.view(-1), ignore_index=-100)
+        loss = F.cross_entropy(logits.view(-1, logits.size(-1)), batch_y.view(-1), ignore_index=PADDING_INDEX)
 
         self.log('val_loss', loss, on_step=True, on_epoch=True, prog_bar=True)
         metrics = {'val_loss': loss} #, 'val_acc': acc}
