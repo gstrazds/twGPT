@@ -22,8 +22,8 @@ data:
 #  test_file: null
 #  tokenizer_file: null
   num_workers: 8
-  train_filtering: cmd_tokens
-  eval_filtering: cmd_tokens
+  train_filtering: cmd_prompts #
+  eval_filtering: cmd_prompts
 
 model:    # Feedback Transformer
   d_embd: 512    # (used to be n_embd) - dimension of input embeddings to transformer blocks

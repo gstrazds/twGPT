@@ -104,8 +104,9 @@ class PlaythroughDataset(Dataset):
         return game_span[1] - game_span[0]  # number of cmd_spans
 
 
-    def get_token_idxs(self, igame, start_step=0, end_step=-1, inclusive=(True,True)):
-        # returns a span: start and end index into the token id data
+    def get_token_idx_spans(self, igame, start_step=0, end_step=-1, inclusive=(True,True)):
+        # returns 3 spans: start and end index into the token id data
+        # one span for each of 1) the game, 2 & 3) the cmd_seq for start_step & end_step
         # inclusive[0]: include the command sequence at the beginning of the start_step
         # inclusive[1]: include the command sequence at the end of the end_step (if there is one)
 
@@ -116,7 +117,7 @@ class PlaythroughDataset(Dataset):
             assert end_step == -1
             end_step = num_game_steps
         elif start_step >= num_game_steps or end_step > num_game_steps:
-            print(f"WARNING: get_token_idxs({start_step}, {end_step}) out of range for game {igame} {game_span}")
+            print(f"WARNING: get_token_idx_spans({start_step}, {end_step}) out of range for game {igame} {game_span}")
             end_step = min(num_game_steps, end_step)
             start_step = min(num_game_steps-1, start_step)
 
@@ -136,7 +137,7 @@ class PlaythroughDataset(Dataset):
             end_idx = end_cmd_span[0]-1
         else:
             end_idx = end_cmd_span[1]
-        return (start_idx, end_idx), _span_len(start_cmd_span), _span_len(end_cmd_span)
+        return (start_idx, end_idx), start_cmd_span, end_cmd_span
 
 
     def num_steps_total(self) -> int:
@@ -160,7 +161,7 @@ class PlaythroughDataset(Dataset):
             or self.span_filtering == PlaythroughDataset.TARGET_CMD_PROMPTS:
             # index only within-game spans that end within a cmd_span
             for igame in range(self.num_games):
-                # game_start_idx = self.get_token_idxs(igame)[0][0]  # idx of start of this game
+                # game_start_idx = self.get_token_idx_spans(igame)[0][0]  # idx of start of this game
                 for step in range(self.get_num_steps(igame)):
                     # from token spans that end with a cmd sequence
                     if self.span_filtering == PlaythroughDataset.TARGET_CMD_PROMPTS:
@@ -168,7 +169,9 @@ class PlaythroughDataset(Dataset):
                         self._add_to_index((igame, step))
                     else:  # self.span_filtering == PlaythroughDataset.TARGET_CMD_TOKENS  # return a record ending at each tokan
                         # one data sample per cmd token of each step of each game
-                        span, cmd0_len, cmd1_len = self.get_token_idxs(igame, 0, step, inclusive=(True,True))
+                        span, cmd0_span, cmd1_span = self.get_token_idx_spans(igame, 0, step, inclusive=(True,True))
+                        #cmd0_len = _span_len(cmd0_span)
+                        cmd1_len = _span_len(cmd1_span)
                         game_start_idx = span[0]  # idx of start of this game
                         # if _span_len(span) >= self.block_size:
                         for j in range(cmd1_len):  # for each subspan that ends within the next_cmd token seq
@@ -183,7 +186,7 @@ class PlaythroughDataset(Dataset):
             if self.span_filtering:
                 assert False, f"Misconfiguration Error: unrecognized span_filtering option: {self.span_filtering}"
             for igame in range(self.num_games):
-                span, _, _ = self.get_token_idxs(igame)  # all the tokens for this game
+                span, _, _ = self.get_token_idx_spans(igame)  # all the tokens for this game
                 if _span_len(span) < self.block_size+1:
                     print(f"_index does not include game {igame} because it is too short {span}")
                     continue
@@ -209,8 +212,8 @@ class PlaythroughDataset(Dataset):
 
             elif self.span_filtering == PlaythroughDataset.TARGET_CMD_TOKENS:
                 start_idx, end_idx = self._index_by_idx[idx]
-                return self.get_left_padded_block(start_idx, end_idx)
-                #return self.get_right_padded_block(start_idx, end_idx)
+                #return self.get_left_padded_block(start_idx, end_idx)
+                return self.get_right_padded_block(start_idx, end_idx)
             #else:
             assert False, f"UNSUPPORTED span_filtering={self.span_filtering} ({idx}:{self._index[idx]})"
             idx = self._index_by_idx[idx]
@@ -260,7 +263,8 @@ class PlaythroughDataset(Dataset):
         icmd = 0
         if fill_id is None:
             fill_id = self.pad_tok
-        gamestep_span, _, cmd1_len = self.get_token_idxs(igame, 0, istep, inclusive=(True,True))
+        gamestep_span, _, cmd1_span = self.get_token_idx_spans(igame, 0, istep, inclusive=(True,True))
+        cmd1_len = _span_len(cmd1_span)
         cmd_span = (gamestep_span[1]-cmd1_len+1, gamestep_span[1])
         # np_icmd = np.where((self.cmd_spans == cmd_span).all(axis=1))[0]
         # if len(np_icmd):
@@ -332,7 +336,7 @@ class PlaythroughDataset(Dataset):
         x_out[:output_len] = self.data[start_idx:start_idx+cmd_start_pos+x_len]
         y_out[:output_len] = self.data[start_idx+1:start_idx+cmd_start_pos+x_len+1]
         # print(x_out)
-        return torch.tensor(x_out, dtype=torch.long), torch.tensor(y_out, dtype=torch.long), torch.tensor(cmd_start_pos)
+        return torch.tensor(x_out, dtype=torch.long), torch.tensor(y_out, dtype=torch.long), torch.tensor([cmd_start_pos])
 
     def get_left_padded_block(self, start_idx, end_idx, fill_id=None):
         if fill_id is None:
@@ -359,7 +363,7 @@ class PlaythroughDataset(Dataset):
             x_out = self.data[start_idx:start_idx+output_len]
             y_out = self.data[start_idx+1:start_idx+1+output_len]
         # print(x_out)
-        return torch.tensor(x_out, dtype=torch.long), torch.tensor(y_out, dtype=torch.long), torch.tensor(pad_length)
+        return torch.tensor(x_out, dtype=torch.long), torch.tensor(y_out, dtype=torch.long), torch.tensor([pad_length])
 
     def get_right_padded_block(self, start_idx, end_idx, fill_id=None):
         if fill_id is None:
@@ -377,7 +381,7 @@ class PlaythroughDataset(Dataset):
             start_idx += output_len - self.block_size
             output_len = self.block_size
         pad_length = self.block_size - output_len
-        if pad_length > 0:    # output_len < self.block_size:
+        if False and pad_length > 0:    # output_len < self.block_size:
             x_out = np.full(self.block_size, fill_value=fill_id)
             y_out = np.full(self.block_size, fill_value=fill_id)
             x_out[:output_len] = self.data[start_idx:start_idx+output_len]
@@ -386,7 +390,7 @@ class PlaythroughDataset(Dataset):
             x_out = self.data[start_idx:start_idx+output_len]
             y_out = self.data[start_idx+1:start_idx+1+output_len]
         # print(x_out)
-        return torch.tensor(x_out, dtype=torch.long), torch.tensor(y_out, dtype=torch.long), torch.tensor(pad_length)
+        return torch.tensor(x_out, dtype=torch.long), torch.tensor(y_out, dtype=torch.long), torch.tensor([pad_length])
 
 class PlaythroughDataModule(LightningDataModule):
     """
@@ -489,7 +493,8 @@ class PlaythroughDataModule(LightningDataModule):
             num_workers=self.num_workers,
             drop_last=True,
             pin_memory=True,
-            persistent_workers=True
+            persistent_workers=True,
+            collate_fn=lambda batch: self.pad_collate(batch)
         )
         return loader
 
@@ -509,21 +514,34 @@ class PlaythroughDataModule(LightningDataModule):
             num_workers=self.num_workers,
             drop_last=True,
             pin_memory=True,
-            persistent_workers=True
+            persistent_workers=True,
+            # collate_fn=lambda batch: self.pad_collate(batch)
         )
         return loader
 
 
     def pad_collate(self, batch):
-        (xx, yy, cmd_start_pos) = zip(*batch)
+        # print("len(batch)", len(batch))
+        # print(type(batch), type(batch[0]))  # a list of tuples, len=batch_size
+        # print("batch[0]", len(batch[0]))  # each tuple has: x shape=(block_size,), y shape=(block_size,), cmd_start shape=(1)
+        # for t in batch[0]:
+        #     print(type(t), t.shape, end=' ')
+        # print()
+        (xx, yy, cmd_start_pos) = zip(*batch)  # get a tuple of lists, each of len batch_len
+        # print(list(cmd_start_pos))
         x_len = [len(x) for x in xx]
         y_len = [len(y) for y in yy]
+        cmd_start_pos = list(cmd_start_pos)
+        # print("xx", len(xx), "yy", len(yy), "start_pos", len(cmd_start_pos)) # each of len batch_len
+
 
         xx_pad = pad_sequence(xx, batch_first=True, padding_value=self.pad_tok)
         yy_pad = pad_sequence(yy, batch_first=True, padding_value=self.pad_tok)
-        for i in len(cmd_start_pos):
+        for i in range(len(cmd_start_pos)):
             assert x_len[i] == y_len[i], f"{x_len} {y_len}"
-            assert xx_pad[i,cmd_start_pos[i]].item() == self.cmd_start_marker
+            #assert xx_pad[i,cmd_start_pos[i][0]].item() == self.cmd_start_marker, \
+            #    f"[{i}:{cmd_start_pos[i][0]}] {xx_pad[i,cmd_start_pos[i][0]].item()}"
+            # print(f"[{i}:{cmd_start_pos[i][0]}] {xx_pad[i,cmd_start_pos[i][0]].item()}")
         return xx_pad, yy_pad, cmd_start_pos
 
 

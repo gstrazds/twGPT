@@ -45,7 +45,7 @@ def sample(model, block_size, x, steps, temperature=1.0, sample=False, top_k=Non
 @torch.no_grad()
 def tokid_from_logits(logits, temperature=1.0, sample=False, top_k=None):
     logits / temperature
-    # print(f"sample: logits.size = {logits.size()}")
+    # print(f"tokid_from_logits: logits.size = {logits.size()}")
     # optionally crop logits to only the top k options
     if top_k is not None:
         logits = top_k_logits(logits, top_k)

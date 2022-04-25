@@ -143,7 +143,7 @@ class GPTLitModule(pl.LightningModule):
             if self.hparams.data.eval_filtering == 'cmd_prompts':
                 assert batch_cmd_pos is not None
                 #print(f"logits.shape={logits.shape}")
-                for x, y, cmd_pos, pred in zip(batch_x, batch_y, batch_cmd_pos, logits):
+                for x, y, cmd_pos, pred in zip(batch_x, batch_y, batch_cmd_pos, logits):  # step through the batch
                     #print(f"calc_cmd_acc: len(x,y)=({len(x),len(y)})\n   x={x}\n  y={y}" )
                     #print(f"pred.shape={pred.shape}")
 
@@ -227,7 +227,7 @@ class GPTLitModule(pl.LightningModule):
             for x_ in x[0:cmd_start_pos+1]:
                 out.append(x_)    # TODO: do this more efficiently with one concat (or refactor to not do it at all)
             for logits in predicted[cmd_start_pos:cmd_start_pos+cmd_len]:
-                #print("SHAPE of logits =", logits.shape)
+                # print("calc_cmd_acc() - SHAPE of logits =", logits.shape)
                 out.append(tokid_from_logits(logits).squeeze(0))
             #print(out)
             predict_out = torch.stack(out)
@@ -293,7 +293,10 @@ def sampleT(model, block_size, x, steps, temperature=1.0, sample=False, top_k=No
         x = torch.cat((x, ix), dim=-1)  #
     return x  # NOTE: returned tensor has shape (b,t_orig+steps)
 
-def sample0():
+def _sample0():  # unused: logic of inner loop of sample(), when transpose_batches == False
+                 # NOTE: need sampleT() because each step of for k in steps
+                 # not only swaps b,t - but also collapses a different dim of logits:
+                 # logits = logits[-1, :, :]
     x_cond = x if x.size(1) <= block_size else x[:, -block_size:]  # crop context if needed
     logits = model(x_cond)
     logits = logits[:, -1, :]  # use the logits from the last seq pos
