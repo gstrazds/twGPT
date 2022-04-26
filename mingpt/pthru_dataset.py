@@ -365,6 +365,10 @@ class PlaythroughDataset(Dataset):
             print(f"ASSERTION FAILURE! get_padded_block({start_idx},{end_idx}) truncating to len={self.block_size}")
             start_idx += output_len - self.block_size
             output_len = self.block_size
+        # pad_length = self.block_size - output_len
+        return self.get_data_tensor(start_idx, output_len, cmd_start_idx, pad_left)
+
+    def get_data_tensor(self, start_idx, output_len, cmd_start_idx, pad_left=False):
         pad_length = self.block_size - output_len
         if pad_length > 0:    # output_len < self.block_size:
             if pad_left:
@@ -386,7 +390,6 @@ class PlaythroughDataset(Dataset):
             cmd_start_pos += pad_length
         # print(x_out)
         return torch.tensor(x_out, dtype=torch.long), torch.tensor(y_out, dtype=torch.long), torch.tensor([cmd_start_pos])
-
 
 class PlaythroughDataModule(LightningDataModule):
     """
