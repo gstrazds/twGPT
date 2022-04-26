@@ -209,11 +209,14 @@ class PlaythroughDataset(Dataset):
 
             if self.span_filtering == PlaythroughDataset.TARGET_CMD_PROMPTS:
                 igame, istep = self._index_by_idx[idx]
-                return self.get_cmd_prompt_for_gamestep(igame, istep, block_size=-1, continuation=-10) #+random extra len from 0 to 10
+                return self.get_cmd_prompt_for_gamestep(igame, istep, block_size=-1, continuation=-10)  # +random extra len from 0 to 10
+                # start_idx, output_len, cmd_start_idx = self.get_cmd_prompt_for_gamestep(igame, istep, block_size=-1, continuation=-10) #+random extra len from 0 to 10
+                # return self.get_data_tensor(start_idx, output_len, cmd_start_idx, pad_left=False)
 
             elif self.span_filtering == PlaythroughDataset.TARGET_CMD_TOKENS:
                 start_idx, end_idx, cmd_start_idx = self._index_by_idx[idx]
-                return self.get_padded_block(start_idx, end_idx, cmd_start_idx, pad_left=True)
+                start_idx, output_len, cmd_start_idx = self.get_padded_block(start_idx, end_idx, cmd_start_idx)
+                return self.get_data_tensor(start_idx, output_len, cmd_start_idx, pad_left=True, fill_id=self.pad_tok)
             #else:
             assert False, f"UNSUPPORTED span_filtering={self.span_filtering} ({idx}:{self._index[idx]})"
             idx = self._index_by_idx[idx]
@@ -339,25 +342,21 @@ class PlaythroughDataset(Dataset):
             x_out = np.full(output_len, fill_value=fill_id)
             y_out = np.full(output_len, fill_value=fill_id)
         # print(f"({cmd_start_idx,cmd_end_idx}) output_len={output_len} start_idx={start_idx} cmd_start_pos={cmd_start_pos} x_len={x_len}")
+        assert output_len == cmd_start_pos+x_len
+        assert cmd_start_pos == cmd_start_idx - start_idx
+        assert x_len == output_len - (cmd_start_idx - start_idx)
+        # return start_idx, output_len, cmd_start_idx
         x_out[:output_len] = self.data[start_idx:start_idx+cmd_start_pos+x_len]
         y_out[:output_len] = self.data[start_idx+1:start_idx+cmd_start_pos+x_len+1]
         # print(x_out)
         return torch.tensor(x_out, dtype=torch.long), torch.tensor(y_out, dtype=torch.long), torch.tensor([cmd_start_pos])
 
-    # def get_left_padded_block(self, start_idx, end_idx, cmd_start_idx, fill_id=None):
-    #     return self.get_padded_block(start_idx, end_idx, cmd_start_idx, pad_left=True, fill_id=fill_id)
-    #
-    # def get_right_padded_block(self, start_idx, end_idx, cmd_start_idx, fill_id=None):
-    #     return self.get_padded_block(start_idx, end_idx, cmd_start_idx, pad_left=False, fill_id=fill_id)
-
-    def get_padded_block(self, start_idx, end_idx, cmd_start_idx, pad_left=False, fill_id=None):
-        if fill_id is None:
-            fill_id = self.pad_tok
+    def get_padded_block(self, start_idx, end_idx, cmd_start_idx):
         if end_idx >= len(self.data):
             # assert False, "THIS SHOULD NOT HAPPEN!"
             print(f"ASSERTION FAILURE get_padded_block({start_idx},{end_idx}) data len={len(self.data)}!!!")
             end_idx = len(self.data)-1
-            start_idx = end_idx - self.block_size+1
+            # start_idx = end_idx - self.block_size+1
         if start_idx < 0:
             start_idx = 0;
         output_len = end_idx - start_idx + 1
@@ -366,9 +365,12 @@ class PlaythroughDataset(Dataset):
             start_idx += output_len - self.block_size
             output_len = self.block_size
         # pad_length = self.block_size - output_len
-        return self.get_data_tensor(start_idx, output_len, cmd_start_idx, pad_left)
+        return (start_idx, output_len, cmd_start_idx)
+        # return self.get_data_tensor(start_idx, output_len, cmd_start_idx, pad_left)
 
-    def get_data_tensor(self, start_idx, output_len, cmd_start_idx, pad_left=False):
+    def get_data_tensor(self, start_idx, output_len, cmd_start_idx, pad_left=False, fill_id=None):
+        if fill_id is None:
+            fill_id = self.pad_tok
         pad_length = self.block_size - output_len
         if pad_length > 0:    # output_len < self.block_size:
             if pad_left:
@@ -390,6 +392,7 @@ class PlaythroughDataset(Dataset):
             cmd_start_pos += pad_length
         # print(x_out)
         return torch.tensor(x_out, dtype=torch.long), torch.tensor(y_out, dtype=torch.long), torch.tensor([cmd_start_pos])
+
 
 class PlaythroughDataModule(LightningDataModule):
     """
