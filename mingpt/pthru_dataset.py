@@ -209,7 +209,10 @@ class PlaythroughDataset(Dataset):
 
             if self.span_filtering == PlaythroughDataset.TARGET_CMD_PROMPTS:
                 igame, istep = self._index_by_idx[idx]
-                return self.get_cmd_prompt_for_gamestep(igame, istep, block_size=-1, continuation=-10)  # +random extra len from 0 to 10
+                start_idx, output_len, cmd_start_idx = self.get_cmd_prompt_for_gamestep(igame, istep, fetch_data=False,
+                                                                                        block_size=-1,
+                                                                                        continuation=-10)  # +random extra len from 0 to 10
+                return self.get_data_tensor(start_idx, output_len, cmd_start_idx, pad_left=False, fill_id=self.pad_tok)
                 # start_idx, output_len, cmd_start_idx = self.get_cmd_prompt_for_gamestep(igame, istep, block_size=-1, continuation=-10) #+random extra len from 0 to 10
                 # return self.get_data_tensor(start_idx, output_len, cmd_start_idx, pad_left=False)
 
@@ -258,7 +261,7 @@ class PlaythroughDataset(Dataset):
         y = torch.tensor(chunk[1:], dtype=torch.long)
         return x, y
 
-    def get_cmd_prompt_for_gamestep(self, igame:int, istep:int, continuation=-1, fill_id=None, block_size=None):
+    def get_cmd_prompt_for_gamestep(self, igame:int, istep:int, continuation=-1, fill_id=None, block_size=None, fetch_data=True):
         if self.cmd_spans is None or not self.game_spans:
             assert self.cmd_spans
             assert self.game_spans
@@ -279,8 +282,17 @@ class PlaythroughDataset(Dataset):
             if block_size > self.block_size:
                 block_size = self.block_size
             # print(f"get_cmd_prompt_for_game={igame}_step={istep} AUTO block_size={block_size} ({_span_len(gamepthru_span)})")
-        return self._prompt_for_cmd_span(cmd_span[0], cmd_span[1], game_start_idx=gamepthru_span[0],
-                                         continuation=continuation, fill_id=fill_id, block_size=block_size)
+        start_idx, output_len, cmd_start_idx = self._prompt_for_cmd_span(cmd_span[0], cmd_span[1],
+                                                                         game_start_idx=gamepthru_span[0],
+                                                                         continuation=continuation,
+                                                                         fill_id=fill_id,
+                                                                         block_size=block_size)
+        if fetch_data:
+            x, y, cmd_start_pos = self.get_data_tensor(start_idx, output_len, cmd_start_idx, pad_left=False,
+                                                       fill_id=self.pad_tok)
+            return x, y, cmd_start_pos
+        else:
+            return start_idx, output_len, cmd_start_idx
 
     # def get_cmd_prompt(self, icmd:int, continuation=-1, fill_id=None):
     #     """ returns a span that ends with the ith cmd_start marker
@@ -345,11 +357,13 @@ class PlaythroughDataset(Dataset):
         assert output_len == cmd_start_pos+x_len
         assert cmd_start_pos == cmd_start_idx - start_idx
         assert x_len == output_len - (cmd_start_idx - start_idx)
-        # return start_idx, output_len, cmd_start_idx
-        x_out[:output_len] = self.data[start_idx:start_idx+cmd_start_pos+x_len]
-        y_out[:output_len] = self.data[start_idx+1:start_idx+cmd_start_pos+x_len+1]
-        # print(x_out)
-        return torch.tensor(x_out, dtype=torch.long), torch.tensor(y_out, dtype=torch.long), torch.tensor([cmd_start_pos])
+        # end_idx = start_idx + output_len - 1
+        return start_idx, output_len, cmd_start_idx
+
+        # x_out[:output_len] = self.data[start_idx:start_idx+cmd_start_pos+x_len]
+        # y_out[:output_len] = self.data[start_idx+1:start_idx+cmd_start_pos+x_len+1]
+        # # print(x_out)
+        # return torch.tensor(x_out, dtype=torch.long), torch.tensor(y_out, dtype=torch.long), torch.tensor([cmd_start_pos])
 
     def get_padded_block(self, start_idx, end_idx, cmd_start_idx):
         if end_idx >= len(self.data):
@@ -540,7 +554,7 @@ class PlaythroughDataModule(LightningDataModule):
             max_pos = max(cmd_start_pos)
             min_pos = min(cmd_start_pos)
             max_shift = max_pos - min_pos
-            print(f"pad_collate: max={max_pos} min={min_pos} shift={max_shift}")
+            print(f"pad_collate: min={min_pos} max={max_pos} shift={max_shift}")
             if max_shift > 0:
                 for i in range(len(cmd_start_pos)):
                     shift_by = cmd_start_pos[i] - min_pos
@@ -551,7 +565,9 @@ class PlaythroughDataModule(LightningDataModule):
                     yy[i] = yy[i][shift_by:]
 
         # print("xx", len(xx), "yy", len(yy), "start_pos", len(cmd_start_pos)) # each of len batch_len
-        print(cmd_start_pos)
+        else:   # align_cmds == False
+            # print("min, max cmd_start_pos:", min(cmd_start_pos), max(cmd_start_pos))
+            pass
 
         xx_pad = pad_sequence(xx, batch_first=True, padding_value=self.pad_tok)
         yy_pad = pad_sequence(yy, batch_first=True, padding_value=self.pad_tok)

@@ -333,7 +333,7 @@ def eval_predict_cmd_tokens(trainer, pl_module:GPTLitModule, dataset, tokenizer=
             # _span_debug, _, _ = dataset.get_token_idxs(igame, 0, istep)
             # print(f"get_token_idxs(igame={igame}, 0, end_step={istep})  {_span_debug}")
             # print(dataset.data[_span_debug[0]:_span_debug[1]+1])
-            x, y, cmd_start_pos = dataset.get_cmd_prompt_for_gamestep(igame, istep, continuation=-1)
+            x, y, cmd_start_pos = dataset.get_cmd_prompt_for_gamestep(igame, istep, continuation=-1, fetch_data=True)
             # if pl_module.transpose_batches:
             #     x = x.T.contiguous()
             #     y = y.T.contiguous()
