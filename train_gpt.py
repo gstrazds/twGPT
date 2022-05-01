@@ -77,11 +77,11 @@ def main(cfg: DictConfig) -> None:
     _datamodule.validation_dataset.print_info("validation_dataset")
 
     checkpoint_callback = ModelCheckpoint(
-        monitor='train_loss_step',
+        monitor='cmd_acc',  #'train_loss_step',
         # dirpath='my/path/',
-        filename=model_data_id+'-{epoch}-{step}-{train_loss_step:.3f}-{val_loss:.3f}',   # {val_acc:.2f}'
+        filename=model_data_id+'-{epoch}-{step}-{cmd_acc:.3f}-{val_loss:.3f}',   # {val_acc:.2f}'
         save_top_k=cfg.trainer.save_top_k,
-        mode='min',
+        mode='max', #'min',
     )
 
     callback_list = [checkpoint_callback]
@@ -90,12 +90,12 @@ def main(cfg: DictConfig) -> None:
         lr_decay = LearningRateDecayCallback(
             learning_rate=cfg.trainer.learning_rate,
             warmup_tokens=cfg.trainer.warmup_tokens,
-            decay_tokens=cfg.trainer.decay_tokens, # = 2 * len(train_dataset) * cfg.model.block_size
+            decay_tokens=cfg.trainer.decay_tokens,  # = 2 * len(train_dataset) * cfg.model.block_size
         )
         callback_list.append(lr_decay)
 
     if cfg.trainer.patience > 0:
-        early_stopping = EarlyStopping('val_loss', mode='min', patience=cfg.trainer.patience)
+        early_stopping = EarlyStopping('cmd_acc', mode='max', patience=cfg.trainer.patience)
         # early_stopping = EarlyStopping('val_acc', mode='max', patience=5)
         callback_list.append(early_stopping)
 

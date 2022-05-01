@@ -127,7 +127,7 @@ class GPTLitModule(pl.LightningModule):
         # loss = F.cross_entropy(logits, batch_y)
         loss = F.cross_entropy(logits.view(-1, logits.size(-1)), batch_y.view(-1), ignore_index=PADDING_INDEX)
 
-        self.log('val_loss', loss, on_step=True, on_epoch=True, prog_bar=True)
+        self.log('val_loss', loss, on_step=True, on_epoch=False, prog_bar=True)
         metrics = {'val_loss': loss} #, 'val_acc': acc}
 
         n_cmd_tokens = 0
@@ -154,13 +154,13 @@ class GPTLitModule(pl.LightningModule):
                     n_cmds += 1
                     if n_matched == n_toks:
                         n_matched_cmds += 1
-                self.log('n_cmd_toks', n_cmd_tokens, on_step=True, on_epoch=True, prog_bar=False)
+                # self.log('n_cmd_toks', n_cmd_tokens, on_step=True, on_epoch=True, prog_bar=False)
                 metrics['n_cmd_toks'] = n_cmd_tokens
-                self.log('n_toks_matched', n_matched_tokens, on_step=True, on_epoch=True, prog_bar=False)
+                # self.log('n_toks_matched', n_matched_tokens, on_step=True, on_epoch=True, prog_bar=False)
                 metrics['n_toks_matched'] = n_matched_tokens
-                self.log('n_cmds', n_cmds, on_step=True, on_epoch=True, prog_bar=True)
+                # self.log('n_cmds', n_cmds, on_step=True, on_epoch=True, prog_bar=True)
                 metrics['n_cmds'] = n_cmds
-                self.log('cmd_exact_match', n_matched_cmds, on_step=True, on_epoch=True, prog_bar=True)
+                # self.log('cmd_exact_match', n_matched_cmds, on_step=True, on_epoch=True, prog_bar=True)
                 metrics['cmd_exact_match'] = n_matched_cmds
         return metrics
 
@@ -168,7 +168,14 @@ class GPTLitModule(pl.LightningModule):
         avg_loss = torch.stack([x["val_loss"] for x in outs]).mean()
         self.log("val_loss", avg_loss, on_epoch=True, prog_bar=True)
 
-        # return {"val_loss": avg_loss, "log": logs}
+        n_cmd_tokens = sum([x['n_cmd_toks'] for x in outs])
+        n_cmds = sum([x['n_cmds'] for x in outs])
+        n_matched_tokens = sum([x['n_toks_matched'] for x in outs])
+        n_matched_cmds = sum([x['cmd_exact_match'] for x in outs])
+
+        self.log('tok_acc', n_matched_tokens/n_cmd_tokens, on_epoch=True, prog_bar=True)
+        self.log('n_cmd_toks', n_cmds, on_epoch=True, prog_bar=False)
+        self.log('cmd_acc', n_matched_cmds/n_cmds, on_epoch=True, prog_bar=True)
 
     def test_step(self, batch, batch_idx):
         metrics = self.validation_step(batch, batch_idx)

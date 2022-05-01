@@ -53,7 +53,7 @@ trainer:
   batch_size: 192
   max_epochs: 3
   learning_rate: 6e-4
-  val_check_interval: 1.0  # 0.5
+  val_check_interval: 0.5
   patience: 25
   save_top_k: 25
   limit_val_batches: 10000  # this should cover all of our current validation set (but maybe not the test set?)
@@ -65,7 +65,7 @@ trainer:
   weight_decay: 0.1 # only applied on matmul weights
   warmup_tokens: 10240  #512*20
   decay_tokens: 2000*${model.block_size} # 2*${len(dataset)}*${gpt.block_size}  # set by caller after loading training data
-  show_samples: true
+  show_samples: false
 
 eval:
 #  checkpoint: ${cwd_path}/saved_models/instrgpt-epoch=4-step=1314-train_loss_step=0.125-val_loss=0.231.ckpt
