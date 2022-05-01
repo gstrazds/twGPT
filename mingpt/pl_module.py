@@ -234,7 +234,7 @@ class GPTLitModule(pl.LightningModule):
         assert len(predict_out) == len(y_trunc) + 1, f"{len(predict_out)} {len(y_trunc)}"
         # the following assertion is a sanity check to confirm that x_trunc and y_trunc are aligned correctly
         if cmd_start_pos > 1:  # at start-of-game we have no context, might predict incorrectly
-            assert predict_out[1] == y_trunc[0], f"{predict_out[0:5]} {y_trunc[0:5]}"
+            assert predict_out[1] == y_trunc[0], f"{predict_out[0:5]} {y_trunc[0:5]} (cmd_pos={cmd_start_pos}) {y_trunc.shape}"
         n_matched = int(
             torch.sum(predict_out[-cmd_len:] == y_trunc[-cmd_len:]))  # torch 1.7 has torch.count_nonzero()
         # n_cmd_tokens = int(cmd_len)
@@ -316,6 +316,7 @@ def eval_predict_cmd_tokens(trainer, pl_module:GPTLitModule, dataset, tokenizer=
     #     if hasattr(trainer, "rank"):
     #         rank = trainer.rank
 
+    print("EVAL_PREDICT_CMD_TOKENS")
     max_eval_games = pl_module.hparams.trainer.limit_val_batches
 
     # for idx in range(1, len(dataset.cmd_spans)):   # skip the initial 'start' command

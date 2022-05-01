@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 # coding: utf-8
 from typing import List, Dict, Optional, Any, Tuple
+import logging
 import random
 import numpy as np
 import torch
@@ -14,6 +15,8 @@ from tokenizers import Tokenizer
 from datasets import load_dataset
 
 from pytorch_lightning import LightningDataModule
+
+logger = logging.getLogger(__name__)
 
 
 CMD_START_TOKEN = '>>>['
@@ -212,15 +215,17 @@ class PlaythroughDataset(Dataset):
                 start_idx, output_len, cmd_start_idx = self.get_cmd_prompt_for_gamestep(igame, istep, fetch_data=False,
                                                                                         block_size=-1,
                                                                                         continuation=-10)  # +random extra len from 0 to 10
-                return self.get_data_tensor(start_idx, output_len, cmd_start_idx, pad_left=False, fill_id=self.pad_tok)
-                # start_idx, output_len, cmd_start_idx = self.get_cmd_prompt_for_gamestep(igame, istep, block_size=-1, continuation=-10) #+random extra len from 0 to 10
-                # return self.get_data_tensor(start_idx, output_len, cmd_start_idx, pad_left=False)
+
+                if False:
+                    return self.get_data_tensor(start_idx, output_len, cmd_start_idx, pad_left=False, fill_id=self.pad_tok)
 
             elif self.span_filtering == PlaythroughDataset.TARGET_CMD_TOKENS:
                 start_idx, end_idx, cmd_start_idx = self._index_by_idx[idx]
-                start_idx, output_len, cmd_start_idx = self.get_padded_block(start_idx, end_idx, cmd_start_idx)
-                return self.get_data_tensor(start_idx, output_len, cmd_start_idx, pad_left=True, fill_id=self.pad_tok)
-            #else:
+                start_idx, output_len, cmd_start_idx = self._limit_to_block_size(start_idx, end_idx, cmd_start_idx)
+                if False:
+                    return self.get_data_tensor(start_idx, output_len, cmd_start_idx, pad_left=True, fill_id=self.pad_tok)
+            return start_idx, output_len, cmd_start_idx
+        #else:
             assert False, f"UNSUPPORTED span_filtering={self.span_filtering} ({idx}:{self._index[idx]})"
             idx = self._index_by_idx[idx]
         chunk = self.data[idx:idx + self.block_size + 1]
@@ -288,6 +293,7 @@ class PlaythroughDataset(Dataset):
                                                                          fill_id=fill_id,
                                                                          block_size=block_size)
         if fetch_data:
+            # print("fetch_data==True:", start_idx, output_len, cmd_start_idx)
             x, y, cmd_start_pos = self.get_data_tensor(start_idx, output_len, cmd_start_idx, pad_left=False,
                                                        fill_id=self.pad_tok)
             return x, y, cmd_start_pos
@@ -334,25 +340,26 @@ class PlaythroughDataset(Dataset):
 
         # right-padding to block_size if batch_size > 1
         if self.span_filtering == PlaythroughDataset.TARGET_CMD_PROMPTS and (self.batch_size is not None and self.batch_size > 1):
-            x_out = np.full(self.block_size, fill_value=fill_id)
-            y_out = np.full(self.block_size, fill_value=fill_id)
+            # x_out = np.full(self.block_size, fill_value=fill_id)
+            # y_out = np.full(self.block_size, fill_value=fill_id)
             if output_len > self.block_size:
                 # adjust so that we output exactly block_size
                 diff_len = output_len - self.block_size
                 output_len -= diff_len  # = self.block_size
                 cmd_start_pos -= diff_len
                 start_idx += diff_len
-            elif output_len < self.block_size:
-                if align_cmds:  # ragged lengths are Ok, pad_collate() will add right padding if needed
-                    diff_len = 0
-                else:  # this is how it used to be -- pad on the right if needed
-                    diff_len = self.block_size - output_len
-                    output_len = self.block_size
-                    x_len += diff_len
-
+            elif output_len <= self.block_size:
+                # if align_cmds:  # ragged lengths are Ok, pad_collate() will add right padding if needed
+                #     diff_len = 0
+                # else:  # this is how it used to be -- pad on the right if needed
+                #     diff_len = self.block_size - output_len
+                #     output_len = self.block_size
+                #     x_len += diff_len
+                diff_len = 0
         else:
-            x_out = np.full(output_len, fill_value=fill_id)
-            y_out = np.full(output_len, fill_value=fill_id)
+            # x_out = np.full(output_len, fill_value=fill_id)
+            # y_out = np.full(output_len, fill_value=fill_id)
+            pass
         # print(f"({cmd_start_idx,cmd_end_idx}) output_len={output_len} start_idx={start_idx} cmd_start_pos={cmd_start_pos} x_len={x_len}")
         assert output_len == cmd_start_pos+x_len
         assert cmd_start_pos == cmd_start_idx - start_idx
@@ -365,47 +372,157 @@ class PlaythroughDataset(Dataset):
         # # print(x_out)
         # return torch.tensor(x_out, dtype=torch.long), torch.tensor(y_out, dtype=torch.long), torch.tensor([cmd_start_pos])
 
-    def get_padded_block(self, start_idx, end_idx, cmd_start_idx):
+    def _limit_to_block_size(self, start_idx, end_idx, cmd_start_idx):
         if end_idx >= len(self.data):
             # assert False, "THIS SHOULD NOT HAPPEN!"
-            print(f"ASSERTION FAILURE get_padded_block({start_idx},{end_idx}) data len={len(self.data)}!!!")
+            print(f"ASSERTION FAILURE _limit_to_block_size({start_idx},{end_idx}) data len={len(self.data)}!!!")
             end_idx = len(self.data)-1
             # start_idx = end_idx - self.block_size+1
         if start_idx < 0:
             start_idx = 0;
         output_len = end_idx - start_idx + 1
         if output_len > self.block_size:
-            print(f"ASSERTION FAILURE! get_padded_block({start_idx},{end_idx}) truncating to len={self.block_size}")
+            print(f"ASSERTION FAILURE! _limit_to_block_size({start_idx},{end_idx}) truncating to len={self.block_size}")
             start_idx += output_len - self.block_size
             output_len = self.block_size
         # pad_length = self.block_size - output_len
+        if output_len <= 0 or start_idx < 0 or start_idx+output_len > len(self.data):
+            logger.error(f"ASSERTION FAILURE! _limit_to_block_size({start_idx},{end_idx}) truncating to len={self.block_size}")
+            assert False
+
         return (start_idx, output_len, cmd_start_idx)
         # return self.get_data_tensor(start_idx, output_len, cmd_start_idx, pad_left)
 
     def get_data_tensor(self, start_idx, output_len, cmd_start_idx, pad_left=False, fill_id=None):
         if fill_id is None:
             fill_id = self.pad_tok
-        pad_length = self.block_size - output_len
-        if pad_length > 0:    # output_len < self.block_size:
-            if pad_left:
-                x_out = np.full(self.block_size, fill_value=fill_id)
-                y_out = np.full(self.block_size, fill_value=fill_id)
-                x_out[-output_len:] = self.data[start_idx:start_idx+output_len]
-                y_out[-output_len:] = self.data[start_idx+1:start_idx+1+output_len]
-            else: #pad_right
-                x_out = np.full(self.block_size, fill_value=fill_id)
-                y_out = np.full(self.block_size, fill_value=fill_id)
-                x_out[:output_len] = self.data[start_idx:start_idx + output_len]
-                y_out[:output_len] = self.data[start_idx + 1:start_idx + 1 + output_len]
+        pad_left_len = self.block_size - output_len if pad_left else 0
+        return self._get_data_tensors(start_idx, output_len, self.block_size, cmd_start_idx, pad_left_len, fill_id=fill_id)
+
+    def _get_data_tensors(self, start_idx, output_len, buffer_size, cmd_start_idx, pad_left=0, fill_id=0):
+        if pad_left > 0:    # output_len < self.block_size:
+            #logger.info(f"_get_data_tensors(pad_left) {start_idx} {output_len} {buffer_size} {self.data.shape}")
+            x_out = np.full(buffer_size, fill_value=fill_id)
+            y_out = np.full(buffer_size, fill_value=fill_id)
+            x_out[pad_left:pad_left+output_len] = self.data[start_idx:start_idx+output_len]
+            y_out[pad_left-1:pad_left+output_len] = self.data[start_idx:start_idx+output_len+1]
+                                                        #self.data[start_idx+1:start_idx+1+output_len]
+        elif output_len < buffer_size: #pad_right
+            # logger.info(f"_get_data_tensors(pad_right) {start_idx} {output_len} {buffer_size} {self.data.shape}")
+            if output_len <= 0:
+                assert False, f"{output_len}"
+            if start_idx >= len(self.data):
+                assert False, f"{self.data.shape}"
+            x_out = np.full(buffer_size, fill_value=fill_id)
+            y_out = np.full(buffer_size, fill_value=fill_id)
+            x_out[:output_len] = self.data[start_idx:start_idx + output_len]
+            y_out[:output_len] = self.data[start_idx + 1:start_idx + 1 + output_len]
+            # logger.info(f"_get_data_tensors(pad_right:{start_idx}) {x_out.shape} {y_out.shape} {self.data.shape}")
             # cmd_start_pos = cmd_start_idx - start_idx
         else:
             x_out = self.data[start_idx:start_idx+output_len]
             y_out = self.data[start_idx+1:start_idx+1+output_len]
         cmd_start_pos = cmd_start_idx - start_idx
         if pad_left:
-            cmd_start_pos += pad_length
+            cmd_start_pos += pad_left
         # print(x_out)
         return torch.tensor(x_out, dtype=torch.long), torch.tensor(y_out, dtype=torch.long), torch.tensor([cmd_start_pos])
+
+    def pad_collate(self, batch, align_cmds=False):
+        # print(f"cmd_start:{self.cmd_start} cnd_end:{self.cmd_end} {len(batch)}", type(batch), type(batch[0]))  # a list of tuples, len=batch_size
+        # print(len(batch[0]))  # 3 : each tuple = (start_idx, output_len, cmd_start_idx)
+        if not align_cmds:
+            max_output_len = 0
+            for _, output_len, _ in batch:
+                if output_len > max_output_len:
+                    max_output_len = output_len
+            # print(f"align_cmd=False max_output_len={max_output_len}")
+        else:  # if align_cmds
+            max_output_len, max_tail, align_pos = 0, 0, 0
+            for start_idx, output_len, cmd_start_idx in batch:
+                # print(start_idx, cmd_start_idx-start_idx, output_len )
+                cmd_pos = cmd_start_idx - start_idx
+                tail_len = output_len - cmd_pos
+                assert 0 <= cmd_pos < output_len, f"{cmd_start_idx} {start_idx} {output_len}"
+                assert output_len <= self.block_size, f"{output_len} {self.block_size}"
+                if tail_len > max_tail:
+                    max_tail = tail_len
+                # if cmd_pos > align_pos:  # move align_pos to the right as far as possible
+                #     align_pos = min(cmd_pos, self.block_size - max_tail)
+                align_pos = min(max(cmd_pos, align_pos), self.block_size - max_tail)
+                max_output_len = max(align_pos + tail_len, max_output_len)
+                assert max_output_len <= self.block_size, f"{max_output_len} {self.block_size}"
+            # print(f"max_tail={max_tail} max_output_len={max_output_len} align_pos={align_pos}")
+
+        xx = []
+        yy = []
+        cmd_start_pos = []
+
+        for i, (start_idx, output_len, cmd_start_idx) in enumerate(batch):
+            # logger.info(f"[{i}] output_len={output_len} (start={start_idx} cmd_start={cmd_start_idx}")
+            if not output_len > 0:
+                err_msg = f"[{i}] UNEXPECTED! output_len={output_len} (start={start_idx} cmd_start={cmd_start_idx}"
+                logger.error(err_msg)
+                assert False, err_msg
+            if not align_cmds:
+                x, y, cmd_pos = self._get_data_tensors(start_idx, output_len, max_output_len, cmd_start_idx,
+                                                       pad_left=0, fill_id=self.pad_tok)
+            else:
+                cmd_pos = cmd_start_idx - start_idx
+                tail_len = output_len - cmd_pos
+                assert align_pos + tail_len <= max_output_len, f"{align_pos} +{tail_len} <= {max_output_len} ({max_tail})"
+                delta_shift = align_pos - cmd_pos
+                if delta_shift > 0:  # need to pad on the left
+                    x, y, cmd_pos = self._get_data_tensors(start_idx, output_len, max_output_len, cmd_start_idx,
+                                                         pad_left=delta_shift, fill_id=self.pad_tok)
+                else:
+                    if delta_shift < 0:  # need to truncate on the left
+                        start_idx -= delta_shift   # NOTE: delta_shift is negative: start_idx gets INCREMENTED
+                        output_len += delta_shift  # NOTE: delta_shift is negative: output_len gets DECREMENTED
+                    x, y, cmd_pos = self._get_data_tensors(start_idx, output_len, max_output_len, cmd_start_idx,
+                                                         pad_left=0, fill_id=self.pad_tok)
+
+            xx.append(x); yy.append(y); cmd_start_pos.append(cmd_pos)
+
+        #
+        #
+        #
+        #
+        # (xx, yy, cmd_start_pos) = zip(*batch)  # from a list of tuples, get a tuple of lists, each of len batch_len
+        # xx = list(xx)
+        # yy = list(yy)
+        # # print(list(cmd_start_pos))
+        # x_len = [len(x) for x in xx]
+        # y_len = [len(y) for y in yy]
+        # cmd_start_pos = list(cmd_start_pos)
+        # if align_cmds:
+        #     max_pos = max(cmd_start_pos)
+        #     min_pos = min(cmd_start_pos)
+        #     max_shift = max_pos - min_pos
+        #     print(f"pad_collate: min={min_pos} max={max_pos} shift={max_shift}")
+        #     if max_shift > 0:
+        #         for i in range(len(cmd_start_pos)):
+        #             shift_by = cmd_start_pos[i] - min_pos
+        #             x_len[i] -= shift_by
+        #             y_len[i] -= shift_by
+        #             cmd_start_pos[i] -= shift_by
+        #             xx[i] = xx[i][shift_by:]
+        #             yy[i] = yy[i][shift_by:]
+        #
+        # # print("xx", len(xx), "yy", len(yy), "start_pos", len(cmd_start_pos)) # each of len batch_len
+        # else:   # align_cmds == False
+        #     # print("min, max cmd_start_pos:", min(cmd_start_pos), max(cmd_start_pos))
+        #     pass
+
+        xx_pad = pad_sequence(xx, batch_first=True, padding_value=self.pad_tok)
+        yy_pad = pad_sequence(yy, batch_first=True, padding_value=self.pad_tok)
+        for i in range(len(cmd_start_pos)):
+            assert len(xx_pad[i]) == len(yy_pad[i]), f"[{i}] {xx_pad[i]} {yy_pad[i]}"
+            if xx_pad[i,cmd_start_pos[i][0]].item() != self.cmd_start:
+                err_msg = f"[{i}:{cmd_start_pos[i][0]}] {xx_pad[i, cmd_start_pos[i][0]].item()} {xx_pad[i,:]}"
+                print(err_msg)
+                assert xx_pad[i,cmd_start_pos[i][0]].item() == self.cmd_start, err_msg
+        return xx_pad, yy_pad, cmd_start_pos
 
 
 class PlaythroughDataModule(LightningDataModule):
@@ -509,8 +626,8 @@ class PlaythroughDataModule(LightningDataModule):
             num_workers=self.num_workers,
             drop_last=True,
             pin_memory=True,
-            persistent_workers=True,
-            collate_fn=lambda batch: self.pad_collate(batch, align_cmds=False)
+            persistent_workers=True if self.num_workers > 0 else False,
+            collate_fn=lambda batch: self.train_dataset.pad_collate(batch, align_cmds=False)
         )
         return loader
 
@@ -530,54 +647,11 @@ class PlaythroughDataModule(LightningDataModule):
             num_workers=self.num_workers,
             drop_last=True,
             pin_memory=True,
-            persistent_workers=True,
-            collate_fn=lambda batch: self.pad_collate(batch, align_cmds=True)
+            persistent_workers=True if self.num_workers > 0 else False,
+            collate_fn=lambda batch: self.validation_dataset.pad_collate(batch, align_cmds=False)
         )
         return loader
 
-
-    def pad_collate(self, batch, align_cmds=False):
-        # print("len(batch)", len(batch))
-        # print(type(batch), type(batch[0]))  # a list of tuples, len=batch_size
-        # print("batch[0]", len(batch[0]))  # each tuple has: x shape=(block_size,), y shape=(block_size,), cmd_start shape=(1)
-        # for t in batch[0]:
-        #     print(type(t), t.shape, end=' ')
-        # print()
-        (xx, yy, cmd_start_pos) = zip(*batch)  # from a list of tuples, get a tuple of lists, each of len batch_len
-        xx = list(xx)
-        yy = list(yy)
-        # print(list(cmd_start_pos))
-        x_len = [len(x) for x in xx]
-        y_len = [len(y) for y in yy]
-        cmd_start_pos = list(cmd_start_pos)
-        if align_cmds:
-            max_pos = max(cmd_start_pos)
-            min_pos = min(cmd_start_pos)
-            max_shift = max_pos - min_pos
-            print(f"pad_collate: min={min_pos} max={max_pos} shift={max_shift}")
-            if max_shift > 0:
-                for i in range(len(cmd_start_pos)):
-                    shift_by = cmd_start_pos[i] - min_pos
-                    x_len[i] -= shift_by
-                    y_len[i] -= shift_by
-                    cmd_start_pos[i] -= shift_by
-                    xx[i] = xx[i][shift_by:]
-                    yy[i] = yy[i][shift_by:]
-
-        # print("xx", len(xx), "yy", len(yy), "start_pos", len(cmd_start_pos)) # each of len batch_len
-        else:   # align_cmds == False
-            # print("min, max cmd_start_pos:", min(cmd_start_pos), max(cmd_start_pos))
-            pass
-
-        xx_pad = pad_sequence(xx, batch_first=True, padding_value=self.pad_tok)
-        yy_pad = pad_sequence(yy, batch_first=True, padding_value=self.pad_tok)
-        for i in range(len(cmd_start_pos)):
-            assert x_len[i] == y_len[i], f"{x_len} {y_len}"
-            if xx_pad[i,cmd_start_pos[i][0]].item() != self.cmd_start_marker:
-                print(f"[{i}:{cmd_start_pos[i][0]}] {xx_pad[i, cmd_start_pos[i][0]].item()} {xx_pad[i,:]}")
-            assert xx_pad[i,cmd_start_pos[i][0]].item() == self.cmd_start_marker, \
-                f"[{i}:{cmd_start_pos[i][0]}] {xx_pad[i,cmd_start_pos[i][0]].item()}"
-        return xx_pad, yy_pad, cmd_start_pos
 
 
 # class PthruDatasetHF(LightningDataModule):
