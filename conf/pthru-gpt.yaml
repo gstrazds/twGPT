@@ -29,7 +29,7 @@ data:
   val_file:  ${cwd_path}/gata-valid-all.pthru  #mingpt-valid-all.pthru
   test_file: ${cwd_path}/gata-test-all.pthru #${cwd_path}/mingpt-test-all.pthru
   tokenizer_file: ${cwd_path}/ftwc_tokenizer.json
-  num_workers: 0  # 8
+  num_workers: 0  # > 0 when using ddp and multiple gpus
   train_filtering: cmd_prompts  # cmd_tokens, cmd_prompts
   eval_filtering: cmd_prompts  #${data.train_filtering}
 
@@ -55,7 +55,7 @@ trainer:
   learning_rate: 6e-4
   val_check_interval: 0.5
   patience: 25
-  save_top_k: 25
+  save_top_k: 7
   limit_val_batches: 10000  # this should cover all of our current validation set (but maybe not the test set?)
   betas:
     - 0.9
