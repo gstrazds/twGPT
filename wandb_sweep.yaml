@@ -24,4 +24,4 @@ command:
 - ${program}
 - ${args_no_hyphens}
 - "use_wandb=true"
-- "trainer.max_epoch=30"
+- "trainer.max_epochs=30"
