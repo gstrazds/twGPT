@@ -21,12 +21,13 @@ from mingpt.callback import CUDACallback
 from mingpt.lr_decay import LearningRateDecayCallback
 
 @hydra.main(config_path="conf", config_name="pthru-gpt")
-def main(cfg: DictConfig) -> None:
+def train_gpt(cfg: DictConfig) -> None:
     sys.path.append(Path(__file__).parent.absolute())   # need to access python modules in subdirs
     cfg.cwd_path = hydra.utils.to_absolute_path(cfg.cwd_path)
-
     # print(OmegaConf.to_yaml(cfg, resolve=True))
     print("cwd_path = ", cfg.cwd_path)
+    assert cfg.cwd_path == hydra.utils.get_original_cwd(), f"{hydra.utils.get_original_cwd()}"
+    rank_zero_info(f"original_cwd: {hydra.utils.get_original_cwd()}")
 
     seed_everything(cfg.general.random_seed)
     model_id = f"{cfg.use_framework}:{cfg.model.arch}"
@@ -110,9 +111,11 @@ def main(cfg: DictConfig) -> None:
     loggers_list = [tb_logger]
     if cfg.use_wandb:
         if pl_model.is_rank_zero():
-            wandb.init(project=cfg.wandb.proj, name=EXPERIMENT_NAME)
+            wandb.init(project=cfg.wandb.proj, name=EXPERIMENT_NAME, settings=wandb.Settings(start_method="thread"))
+            wandb.define_metric('cmd_acc', summary='max')
         wandb_logger = WandbLogger(project=cfg.wandb.proj, name=EXPERIMENT_NAME)
         loggers_list.append(wandb_logger)
+
 
     trainer = pl.Trainer(gpus=cfg.gpus,
                          max_epochs=cfg.trainer.max_epochs,
@@ -164,4 +167,4 @@ class SamplePredictions(Callback):
 
 
 if __name__ == '__main__':
-        main()
+        train_gpt()

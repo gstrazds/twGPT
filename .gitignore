@@ -2,6 +2,7 @@
 __pycache__/
 outputs/
 multirun/
+wandb/
 tmp/
 bak/
 saved_models/

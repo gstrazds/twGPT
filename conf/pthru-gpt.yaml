@@ -2,9 +2,11 @@
 # @package _global_
 
 defaults:
-# - def_values01  # could optionally provide default config values in external file(s) listed here
+# could specify default config groups / values in external dirs or files listed here
+# - groupname: filename
+# - def_vals_filename
   - _self_
-  - overrides: null   # can select from config files in conf/overrides/ to override values listed below
+  - overrides: null   # can select (on cmd line) from config files in conf/overrides/ to override values
 
 cwd_path: "."   # gets expanded to an absolute path to the original current directory (not the Hydra/runtime working dir)
 
