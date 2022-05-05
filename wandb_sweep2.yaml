@@ -15,8 +15,6 @@ parameters:
 
 #  experiment:
 #    values: [expt001, expt002]
-#  optimizer:
-#    values: [sgd, adagrad, adam]
 
 command:
 - ${env}
@@ -24,4 +22,3 @@ command:
 - ${program}
 - ${args_no_hyphens}
 - "use_wandb=true"
-- "trainer.max_epochs=50"

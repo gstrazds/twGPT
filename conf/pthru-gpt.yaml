@@ -6,6 +6,7 @@ defaults:
 # - groupname: filename
 # - def_vals_filename
   - _self_
+  - experiment: null
   - overrides: null   # can select (on cmd line) from config files in conf/overrides/ to override values
 
 cwd_path: "."   # gets expanded to an absolute path to the original current directory (not the Hydra/runtime working dir)
@@ -43,7 +44,7 @@ model:
   n_heads: 8
   d_embd: 512
   hidden_layer_multiplier: 4          # used directly by xFormers framework
-  d_ff: 2048  # ${.hidden_layer_multiplier}*${.n_embd}  # FF layer of transformer block
+  d_ff: null   # 2048 = ${.hidden_layer_multiplier}*${.d_embd}  # FF layer of transformer block
   dropout: 0.1
   embd_pdrop: ${.dropout}
   resid_pdrop: ${.dropout}
@@ -66,10 +67,13 @@ trainer:
   lr_decay: true
   weight_decay: 0.1 # only applied on matmul weights
   warmup_tokens: 10240  #512*20
-  decay_tokens: 2000*${model.block_size} # 2*${len(dataset)}*${gpt.block_size}  # set by caller after loading training data
+  decay_multiplier: 8
+  decay_tokens: null #{trainer.decay_multiplier}*{model.block_size}*${len(dataset)}  # set by caller after loading training data
   show_samples: false
 
 eval:
+  chkpt_dir: null
+  chkpt_glob: null
 #  checkpoint: ${cwd_path}/saved_models/instrgpt-epoch=4-step=1314-train_loss_step=0.125-val_loss=0.231.ckpt
 #  checkpoint: ${cwd_path}/saved_models/12-31/mingpt-epoch=1-step=1469-train_loss_step=0.197-val_loss=0.662.ckpt  # 84.2 % (win 27/124)
 #  checkpoint: ${cwd_path}/saved_models/2021-01-04_16-24-29/instrgpt-epoch=4-step=1655-train_loss_step=0.129-val_loss=0.258.ckpt  #
@@ -78,8 +82,8 @@ eval:
   #instrgpt-epoch=4-step=3380-train_loss_step=0.155-val_loss=0.920.ckpt # 88.29%
   # mingpt-epoch=02-step=01616-val_loss=0.66.ckpt  # 83.6 % (win 29/124)
   # mingpt-epoch=2-step=1616-train_loss_step=0.199-val_loss=0.662.ckpt  # 83.6
-  play_games: false
   which_set: valid    # valid or test
+  play_games: false
   which_games: gata   # gata or ftwc
   root_dir: /ssd2tb/${eval.which_games}  # /ssd2tb/ftwc
   pthru_data_dir: ${eval.root_dir}/playthru_data/${eval.which_games}_${eval.which_set}  #mingpt-${eval.which_set}

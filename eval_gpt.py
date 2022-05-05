@@ -221,12 +221,18 @@ def play_game(gamename, pl_module, tokenizer, gamedir=TW_TRAINING_DIR, max_steps
 
 @hydra.main(config_path="conf", config_name="pthru-gpt")
 def main(cfg: DictConfig) -> None:
-    cfg.cwd_path = hydra.utils.to_absolute_path(cfg.cwd_path)
+
+    sys.path.append(Path(__file__).parent.absolute())   # need to access python modules in subdirs
+
+    seed_everything(cfg.general.random_seed)
+
+    rank_zero_info(f"original_cwd: {hydra.utils.get_original_cwd()}")
+
+    GPTLitModule.adjust_cfg_fields(cfg)
+    # cfg.cwd_path = hydra.utils.to_absolute_path(cfg.cwd_path)
 
     print(OmegaConf.to_yaml(cfg, resolve=True))
     print("cwd_path = ", cfg.cwd_path)
-
-    seed_everything(cfg.general.random_seed)
 
     start_time = datetime.datetime.now()
     print(f"======================================= {__file__} - Start time: {start_time}\n{os.getcwd()}\n")
@@ -245,9 +251,12 @@ def main(cfg: DictConfig) -> None:
 
     _datamodule.prepare_data()
     tokenizer = _datamodule.tokenizer
-    train_dataset = _datamodule.train_dataset
-    cfg.trainer.decay_tokens = 2 * len(train_dataset) * train_dataset.block_size
-    cfg.model.vocab_size = _datamodule.vocab_size
+
+    # dynamically set some config/hparam values (ensures that they get saved with results of each run)
+    valid_dataset = _datamodule.train_dataset
+    GPTLitModule.adjust_cfg_vocab(cfg, valid_dataset)
+    # cfg.model.vocab_size = _datamodule.vocab_size
+    # cfg.trainer.decay_tokens = 2 * len(train_dataset) * train_dataset.block_size
 
     pl_model = GPTLitModule.load_from_checkpoint(checkpoint_path=cfg.eval.checkpoint)
     pl_model.set_cmd_markers(_datamodule.cmd_start_marker, _datamodule.cmd_end_marker)

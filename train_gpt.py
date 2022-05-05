@@ -20,16 +20,19 @@ from mingpt.pl_module import GPTLitModule, eval_predict_cmd_tokens, PADDING_INDE
 from mingpt.callback import CUDACallback
 from mingpt.lr_decay import LearningRateDecayCallback
 
+
+
 @hydra.main(config_path="conf", config_name="pthru-gpt")
 def train_gpt(cfg: DictConfig) -> None:
     sys.path.append(Path(__file__).parent.absolute())   # need to access python modules in subdirs
-    cfg.cwd_path = hydra.utils.to_absolute_path(cfg.cwd_path)
-    # print(OmegaConf.to_yaml(cfg, resolve=True))
-    print("cwd_path = ", cfg.cwd_path)
-    assert cfg.cwd_path == hydra.utils.get_original_cwd(), f"{hydra.utils.get_original_cwd()}"
-    rank_zero_info(f"original_cwd: {hydra.utils.get_original_cwd()}")
 
     seed_everything(cfg.general.random_seed)
+
+    rank_zero_info(f"original_cwd: {hydra.utils.get_original_cwd()}")
+
+    GPTLitModule.adjust_cfg_fields(cfg)
+    # cfg.cwd_path = hydra.utils.to_absolute_path(cfg.cwd_path)
+
     model_id = f"{cfg.use_framework}:{cfg.model.arch}"
     model_data_id = f"{model_id}:{'pthru' if cfg.train_ftwc else 'char'}"
 
@@ -59,11 +62,10 @@ def train_gpt(cfg: DictConfig) -> None:
 
     _datamodule.prepare_data()
     assert PADDING_INDEX == _datamodule.pad_tok, f"PADDING TOKEN index = {_datmodule.pad_tok} (should be {PADDING_INDEX})"
-    train_dataset = _datamodule.train_dataset
 
     # dynamically set some config/hparam values (ensures that they get saved with results of each run)
-    cfg.model.vocab_size = _datamodule.vocab_size
-    cfg.trainer.decay_tokens = 2 * len(train_dataset) * cfg.model.block_size
+    train_dataset = _datamodule.train_dataset
+    GPTLitModule.adjust_cfg_vocab(cfg, train_dataset)
 
     print(OmegaConf.to_yaml(cfg, resolve=True))
     # print(f"Vocabulary size={cfg.model.vocab_size}")

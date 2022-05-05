@@ -4,6 +4,7 @@ import torch
 import torch.nn as nn
 from torch.nn import functional as F
 
+import hydra
 import pytorch_lightning as pl
 
 from .utils import sample, tokid_from_logits
@@ -54,6 +55,22 @@ class GPTLitModule(pl.LightningModule):
         # self.criterion = nn.CrossEntropyLoss()
         logger.info("number of parameters: %e", sum(p.numel() for p in self.model.parameters()))
         print(self.model)
+
+    @staticmethod
+    def adjust_cfg_fields(cfg):
+        cfg.cwd_path = hydra.utils.to_absolute_path(cfg.cwd_path)
+        if not cfg.model.d_ff:
+            cfg.model.d_ff = cfg.model.d_embd * cfg.model.hidden_layer_multiplier
+
+    @staticmethod
+    def adjust_cfg_vocab(cfg, dataset):
+        cfg.model.vocab_size = dataset.vocab_size
+        try:
+            cfg.trainer.decay_tokens = int(cfg.trainer.decay_tokens)
+        except (ValueError, TypeError):
+            cfg.trainer.decay_tokens = 0
+        if not cfg.trainer.decay_tokens:
+            cfg.trainer.decay_tokens = cfg.trainer.decay_multiplier * cfg.model.block_size * len(dataset)
 
     def is_rank_zero(self):
         if hasattr(self, "global_rank"):

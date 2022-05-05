@@ -31,10 +31,12 @@ class PlaythroughDataset(Dataset):
     TARGET_CMD_TOKENS = "cmd_tokens"     # one data sample per cmd token of each step of each game (ending on each token)
     TARGET_CMD_PROMPTS = "cmd_prompts"   # one data sample per step of each game (ending on the cmd_end token)
 
-    def __init__(self, data, block_size, cmd_markers: Tuple[int,int] = None, game_start_tok:int = None,
-                 pad_tok:int=0, span_filtering=None, batch_size=1):
+    def __init__(self, data, block_size, vocab_size: int = 0,
+                 cmd_markers: Tuple[int,int] = None, game_start_tok: int = None,
+                 pad_tok: int = 0, span_filtering=None, batch_size=1):
         self.block_size = block_size
         self.batch_size = batch_size
+        self.vocab_size = vocab_size
         self.data = np.array(data)  # make a copy of the given list of token ids
         self.cmd_spans = None
         self.game_spans = []  # each span (index in cmd_spans of game start, index into cmd_spans of start of next game)
@@ -599,6 +601,7 @@ class PlaythroughDataModule(LightningDataModule):
 
         cmd_markers = (self.cmd_start_marker, self.cmd_end_marker)
         self.train_dataset = PlaythroughDataset(encoded_data.ids, self.block_size,
+                                                vocab_size=self.vocab_size,
                                                 cmd_markers=cmd_markers,
                                                 game_start_tok=self.game_start_tok,
                                                 pad_tok=self.pad_tok,
@@ -611,6 +614,7 @@ class PlaythroughDataModule(LightningDataModule):
             # if self.eval_filtering == PlaythroughDataset.TARGET_CMD_PROMPTS:
             #     batch_size = 1
             self.validation_dataset = PlaythroughDataset(eval_encoded.ids, self.block_size,
+                                                         vocab_size=self.vocab_size,
                                                          cmd_markers=cmd_markers,
                                                          game_start_tok=self.game_start_tok,
                                                          pad_tok=self.pad_tok,
