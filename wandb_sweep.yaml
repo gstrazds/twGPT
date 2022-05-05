@@ -8,7 +8,7 @@ method: bayes
 parameters:
   model.n_layers:
     min: 4
-    max: 7
+    max: 9
   trainer.learning_rate:
     min: !!float 1e-5
     max: 0.001
@@ -24,4 +24,4 @@ command:
 - ${program}
 - ${args_no_hyphens}
 - "use_wandb=true"
-- "trainer.max_epochs=30"
+#- "trainer.max_epochs=30"

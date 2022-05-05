@@ -1,6 +1,7 @@
-import os
+import os, sys
 import glob
 import pathlib
+
 # import argparse
 from typing import List, Dict, Tuple, Any, Optional
 
@@ -222,7 +223,7 @@ def play_game(gamename, pl_module, tokenizer, gamedir=TW_TRAINING_DIR, max_steps
 @hydra.main(config_path="conf", config_name="pthru-gpt")
 def main(cfg: DictConfig) -> None:
 
-    sys.path.append(Path(__file__).parent.absolute())   # need to access python modules in subdirs
+    sys.path.append(pathlib.Path(__file__).parent.absolute())   # need to access python modules in subdirs
 
     seed_everything(cfg.general.random_seed)
 
@@ -325,10 +326,21 @@ def main(cfg: DictConfig) -> None:
     else:
         debug_print_some_spans(dataset)
 
+        results_dir = cfg.eval.results_dir
+        trainer_epoch = 0
+        trainer_global_step = 0
         tokens_matched, total_cmd_tokens, full_matches, num_cmds = eval_predict_cmd_tokens(None, pl_model, dataset,
                                                                                            tokenizer=_datamodule.tokenizer)
-        print(f"TOKENS: {tokens_matched}/{total_cmd_tokens} acc={tokens_matched / total_cmd_tokens}")
-        print(f"CMDS: {full_matches}/{num_cmds} acc={full_matches / num_cmds}")
+        cmd_acc = full_matches / num_cmds
+        token_acc = tokens_matched / total_cmd_tokens
+        print(f"TOKENS: {tokens_matched}/{total_cmd_tokens} acc={token_acc}")
+        print(f"CMDS: {full_matches}/{num_cmds} acc={cmd_acc}")
+
+        if results_dir:  # (not hasattr(trainer, "rank") or trainer.rank == 0):
+            results_file = f'{results_dir}/epoch{trainer_epoch:02d}_step{trainer_global_step:04d}_{token_acc:.4f}_{cmd_acc:.4f}.txt'
+            with open(results_file,'w') as outfile:
+                outfile.write(
+                    f"{token_acc}\t{tokens_matched}\t{total_cmd_tokens}\t{cmd_acc}\t{full_matches}\t{num_cmds}\t{trainer_epoch}\t{trainer_global_step}")
 
         finish_time = datetime.datetime.now()
     print(f"================ {__file__} - Finished : {finish_time} -- elapsed: {finish_time-start_time}")
@@ -342,9 +354,9 @@ def debug_print_some_spans(dataset):
         print("Game", i, "num_steps:", num_steps, game_span)
         for j in range(num_steps):
             print(f"\tcmd_span[{game_span[0] + j}] {dataset.cmd_spans[game_span[0] + j]}", end=' ')
-            print(f"{dataset.get_token_idxs(i, 0, j + 1, inclusive=(True, True))[0]}")
+            print(f"{dataset.get_token_idx_spans(i, 0, j + 1, inclusive=(True, True))[0]}")
             # print("cmd_prompt_for_gamestep:", dataset.get_cmd_prompt_for_gamestep(i,j))
-        print("Game", i, "token span:", dataset.get_token_idxs(i))
+        print("Game", i, "token span:", dataset.get_token_idx_spans(i))
         print()
     # print the same info for the last game in the dataset
     i = dataset.num_games - 1
@@ -353,9 +365,9 @@ def debug_print_some_spans(dataset):
     print("Game", i, "num_steps:", num_steps, game_span)
     for j in range(num_steps):
         print(f"\tcmd_span[{game_span[0] + j}] {dataset.cmd_spans[game_span[0] + j]}", end=' ')
-        print(f"{dataset.get_token_idxs(i, j, j + 1, inclusive=(True, True))[0]}")
-    last_range, cmd0_len, cmd1_len = dataset.get_token_idxs(i)
-    print("Game", i, "token span:", last_range, cmd0_len, cmd1_len)
+        print(f"{dataset.get_token_idx_spans(i, j, j + 1, inclusive=(True, True))[0]}")
+    game_span, cmd0_span, cmd1_span = dataset.get_token_idx_spans(i)
+    print("Game", i, "token span:", game_span, cmd0_span, cmd1_span)
     # token_list = dataset.data[last_range[0]:last_range[1]]
     # print(_datamodule.tokenizer.decode(token_list))
     # print()
