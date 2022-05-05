@@ -1,0 +1,27 @@
+project: sweepGPT
+program: train_gpt.py
+metric:
+  name: cmd_acc
+  goal: maximize
+
+method: bayes
+parameters:
+  model.n_layers:
+    min: 8
+    max: 10
+#  trainer.learning_rate:
+    #min: !!float 1e-5
+    #max: 0.001
+
+#  experiment:
+#    values: [expt001, expt002]
+#  optimizer:
+#    values: [sgd, adagrad, adam]
+
+command:
+- ${env}
+- ${interpreter}
+- ${program}
+- ${args_no_hyphens}
+- "use_wandb=true"
+- "trainer.max_epochs=50"
