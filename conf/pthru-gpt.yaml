@@ -66,7 +66,7 @@ trainer:
   grad_norm_clip: 1.0
   lr_decay: true
   weight_decay: 0.1 # only applied on matmul weights
-  warmup_tokens: 10240  #512*20
+  warmup_tokens: 20480  #10240 = 512*20
   decay_multiplier: 8
   decay_tokens: null #{trainer.decay_multiplier}*{model.block_size}*${len(dataset)}  # set by caller after loading training data
   show_samples: false

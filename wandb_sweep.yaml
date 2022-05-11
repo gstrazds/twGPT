@@ -9,14 +9,16 @@ parameters:
   model.n_layers:
     min: 4
     max: 9
-  trainer.learning_rate:
-    min: !!float 1e-5
-    max: 0.001
+  trainer.decay_multiplier:
+    min: 6
+    max: 10
+
+#  trainer.learning_rate:
+#    min: !!float 1e-5
+#    max: 0.001
 
 #  experiment:
 #    values: [expt001, expt002]
-#  optimizer:
-#    values: [sgd, adagrad, adam]
 
 command:
 - ${env}
@@ -24,4 +26,6 @@ command:
 - ${program}
 - ${args_no_hyphens}
 - "use_wandb=true"
-#- "trainer.max_epochs=30"
+- "trainer.max_epochs=50"
+- "model.d_embd=768"
+- "model.d_ff=2048"
