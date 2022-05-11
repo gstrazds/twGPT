@@ -78,7 +78,7 @@ eval:
 #  checkpoint: ${cwd_path}/saved_models/instrgpt-epoch=4-step=1314-train_loss_step=0.125-val_loss=0.231.ckpt
 #  checkpoint: ${cwd_path}/saved_models/12-31/mingpt-epoch=1-step=1469-train_loss_step=0.197-val_loss=0.662.ckpt  # 84.2 % (win 27/124)
 #  checkpoint: ${cwd_path}/saved_models/2021-01-04_16-24-29/instrgpt-epoch=4-step=1655-train_loss_step=0.129-val_loss=0.258.ckpt  #
-  checkpoint: ${cwd_path}/outputs/2022-05-04/17-35-07/_twGPT/0_o6iye5vf/checkpoints/mingpt:gpt:pthru-epoch=2-step=499-cmd_acc=0.643-val_loss=0.729.ckpt
+  checkpoint: ${cwd_path}/saved_models/2022-05-11/mingpt:gpt:pthru-epoch=1-step=331-cmd_acc=0.669-val_loss=0.772.ckpt
   #${cwd_path}/outputs/2021-12-10/11-49-32/lightning_logs/version_0/checkpoints/instrgpt-epoch=5-step=917-train_loss_step=0.228-val_loss=0.239.ckpt
   #instrgpt-epoch=4-step=3380-train_loss_step=0.155-val_loss=0.920.ckpt # 88.29%
   #instrgpt-epoch=4-step=3380-train_loss_step=0.155-val_loss=0.920.ckpt # 88.29%

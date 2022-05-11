@@ -16,7 +16,7 @@ from pytorch_lightning.utilities import rank_zero_info
 
 from mingpt.pthru_dataset import PlaythroughDataModule
 from mingpt.char_dataset import CharDataModule
-from mingpt.pl_module import GPTLitModule, eval_predict_cmd_tokens, PADDING_INDEX
+from mingpt.pl_module import GPTLitModule, PADDING_INDEX
 from mingpt.callback import CUDACallback
 from mingpt.lr_decay import LearningRateDecayCallback
 
@@ -154,7 +154,7 @@ class SamplePredictions(Callback):
     def on_validation_end(self, trainer, pl_module):
         if pl_module.is_rank_zero():
             n_matched, total_cmd_tokens, full_matches, num_cmds = \
-                                    eval_predict_cmd_tokens(trainer, pl_module, self.dataset, tokenizer=self.tokenizer)
+                                    pl_module.eval_predict_cmd_tokens(self.dataset, tokenizer=self.tokenizer)
             cmd_token_acc = n_matched / total_cmd_tokens
             cmd_acc = full_matches / num_cmds
             rank_zero_info(f"VALIDATION CMD_TOKEN_ACC = {cmd_token_acc:.5f}  CMD_ACC = {cmd_acc:.5f}")

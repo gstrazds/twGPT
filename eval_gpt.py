@@ -21,7 +21,7 @@ from twutils.playthroughs import start_game_for_playthrough, step_game_for_playt
 from twutils.playthroughs import playthrough_step_to_json, format_playthrough_step, concat_pthru_step
 
 from mingpt.pthru_dataset import PlaythroughDataModule
-from mingpt.pl_module import GPTLitModule, eval_predict_cmd_tokens
+from mingpt.pl_module import GPTLitModule
 
 
 def predict_cmd(pl_module, tokenizer, pthru_so_far: str, failed_cmds: List[str] = None) -> str:
@@ -236,7 +236,7 @@ def main(cfg: DictConfig) -> None:
     print("cwd_path = ", cfg.cwd_path)
 
     start_time = datetime.datetime.now()
-    print(f"======================================= {__file__} - Start time: {start_time}\n{os.getcwd()}\n")
+    rank_zero_info(f"======================================= {__file__} - Start time: {start_time}\n{os.getcwd()}\n")
     pass
 
     _datamodule = PlaythroughDataModule(
@@ -324,17 +324,17 @@ def main(cfg: DictConfig) -> None:
             finish_time = datetime.datetime.now()
             f.write(f"================ {__file__} - Finished : {finish_time} -- elapsed: {finish_time-start_time}\n")
     else:
-        debug_print_some_spans(dataset)
+        # debug_print_some_spans(dataset)
 
         results_dir = cfg.eval.results_dir
         trainer_epoch = 0
         trainer_global_step = 0
-        tokens_matched, total_cmd_tokens, full_matches, num_cmds = eval_predict_cmd_tokens(None, pl_model, dataset,
+        tokens_matched, total_cmd_tokens, full_matches, num_cmds = pl_model.eval_predict_cmd_tokens(dataset,
                                                                                            tokenizer=_datamodule.tokenizer)
         cmd_acc = full_matches / num_cmds
         token_acc = tokens_matched / total_cmd_tokens
-        print(f"TOKENS: {tokens_matched}/{total_cmd_tokens} acc={token_acc}")
-        print(f"CMDS: {full_matches}/{num_cmds} acc={cmd_acc}")
+        print(f"TOKENS: {tokens_matched}/{total_cmd_tokens} acc={token_acc*100:02.2f} %")
+        print(f"CMDS: {full_matches}/{num_cmds} acc={cmd_acc*100:02.2f} %")
 
         if results_dir:  # (not hasattr(trainer, "rank") or trainer.rank == 0):
             results_file = f'{results_dir}/epoch{trainer_epoch:02d}_step{trainer_global_step:04d}_{token_acc:.4f}_{cmd_acc:.4f}.txt'
@@ -343,7 +343,7 @@ def main(cfg: DictConfig) -> None:
                     f"{token_acc}\t{tokens_matched}\t{total_cmd_tokens}\t{cmd_acc}\t{full_matches}\t{num_cmds}\t{trainer_epoch}\t{trainer_global_step}")
 
         finish_time = datetime.datetime.now()
-    print(f"================ {__file__} - Finished : {finish_time} -- elapsed: {finish_time-start_time}")
+    rank_zero_info(f"================ {__file__} - Finished : {finish_time} -- elapsed: {finish_time-start_time}")
 
 
 def debug_print_some_spans(dataset):

@@ -6,6 +6,7 @@ from torch.nn import functional as F
 
 import hydra
 import pytorch_lightning as pl
+from pytorch_lightning.utilities import rank_zero_info
 
 from .utils import sample, tokid_from_logits
 from .model import GPT
@@ -294,6 +295,65 @@ class GPTLitModule(pl.LightningModule):
         # return preds.detach()[0]
         return preds.detach().squeeze()  # reduce from (b=1,t) to a single dimension (a vector)
 
+    def eval_predict_cmd_tokens(self, dataset, tokenizer=None):
+        total_cmd_tokens = 0
+        total_matched = 0
+        full_matches = 0
+        total_cmds = 0
+        n_printed = 0
+
+        # print("EVAL_PREDICT_CMD_TOKENS")
+        max_eval_games = self.hparams.trainer.limit_val_batches
+
+        # for idx in range(1, len(dataset.cmd_spans)):   # skip the initial 'start' command
+        #     x, y, cmd_start_pos = dataset.get_cmd_prompt(idx, continuation=-1)
+        #     if idx % 200 == 0 and total_matched == total_cmd_tokens:
+        #         print(idx, "...")  # let them know we're actually doing something...
+        for igame in range(min(dataset.num_games, max_eval_games)):
+            if self.hparams.trainer.show_samples and igame % 10 == 0:
+                rank_zero_info(f"+{igame} [:{dataset.get_num_steps(igame)}] --------------------------")
+            if hasattr(self, 'reset_episode'):
+                self.reset_episode()
+            for istep in range(1, dataset.get_num_steps(igame)):
+                total_cmds += 1
+                # _span_debug, _, _ = dataset.get_token_idxs(igame, 0, istep)
+                # print(f"get_token_idxs(igame={igame}, 0, end_step={istep})  {_span_debug}")
+                # print(dataset.data[_span_debug[0]:_span_debug[1]+1])
+                x, y, cmd_start_pos = dataset.get_cmd_prompt_for_gamestep(igame, istep, continuation=-1, fetch_data=True)
+                # if pl_module.transpose_batches:
+                #     x = x.T.contiguous()
+                #     y = y.T.contiguous()
+                    #print("cmd_start_pos:", cmd_start_pos)
+                # print( x[cmd_start_pos].item() )
+
+                cmd_len, n_matched, predicted, y_trunc = self.calc_cmd_acc(int(cmd_start_pos), x, y,
+                                                                                predicted=None)
+
+                if n_matched == cmd_len:
+                    full_matches += 1
+                elif self.hparams.trainer.show_samples:  # and n_matched != n_cmd_tokens:
+                    n_printed += 1
+                    if n_printed < 10 or n_printed % 100 == 0 or igame > dataset.num_games - 3:
+                        rank_zero_info(
+                            f" {igame}.{istep}  ...   \t{n_matched} / {cmd_len}   \tacc: {n_matched / cmd_len:4f}")
+                        if tokenizer and self.is_rank_zero():
+                            y_predicted = predicted.cpu().tolist()
+                            y_ids = y_trunc.detach().cpu().tolist()
+
+                            # show_sample(tokenizer, f"{igame}.{istep}", y_predicted, y_ids, n_sampled=n_cmd_tokens)
+                            n_sampled = cmd_len
+                            _idx = f"{igame}.{istep}"
+                            print(f"({_idx})", tokenizer.decode(y_ids[0:6]), '[....]',
+                                  tokenizer.decode(y_ids[-5 - n_sampled:-n_sampled]), "|",
+                                  tokenizer.decode(y_ids[-n_sampled:]))
+                            print(f"<{_idx}>", tokenizer.decode(y_predicted[1:7]), '[....]',
+                                  tokenizer.decode(y_predicted[-5 - n_sampled:]))
+                            print()
+
+                total_cmd_tokens += cmd_len
+                total_matched += n_matched
+        return total_matched, total_cmd_tokens, full_matches, total_cmds
+
 
 @torch.no_grad()
 def sampleT(model, block_size, x, steps, temperature=1.0, sample=False, top_k=None):
@@ -329,67 +389,3 @@ def _sample0():  # unused: logic of inner loop of sample(), when transpose_batch
     x = torch.cat((x, ix), dim=1)
 
 
-def eval_predict_cmd_tokens(trainer, pl_module:GPTLitModule, dataset, tokenizer=None):
-    total_cmd_tokens = 0
-    total_matched = 0
-    full_matches = 0
-    total_cmds = 0
-    n_printed = 0
-    rank = -1
-    # elif trainer:
-    #     if hasattr(trainer, "rank"):
-    #         rank = trainer.rank
-
-    print("EVAL_PREDICT_CMD_TOKENS")
-    max_eval_games = pl_module.hparams.trainer.limit_val_batches
-
-    # for idx in range(1, len(dataset.cmd_spans)):   # skip the initial 'start' command
-    #     x, y, cmd_start_pos = dataset.get_cmd_prompt(idx, continuation=-1)
-    #     if idx % 200 == 0 and total_matched == total_cmd_tokens:
-    #         print(idx, "...")  # let them know we're actually doing something...
-    for igame in range(min(dataset.num_games, max_eval_games)):
-        if igame % 10 == 0:
-            if pl_module.is_rank_zero():
-                print(f"+{igame} [:{dataset.get_num_steps(igame)}] --------------------------")
-        if hasattr(pl_module, 'reset_episode'):
-            pl_module.reset_episode()
-        for istep in range(1, dataset.get_num_steps(igame)):
-            total_cmds += 1
-            # _span_debug, _, _ = dataset.get_token_idxs(igame, 0, istep)
-            # print(f"get_token_idxs(igame={igame}, 0, end_step={istep})  {_span_debug}")
-            # print(dataset.data[_span_debug[0]:_span_debug[1]+1])
-            x, y, cmd_start_pos = dataset.get_cmd_prompt_for_gamestep(igame, istep, continuation=-1, fetch_data=True)
-            # if pl_module.transpose_batches:
-            #     x = x.T.contiguous()
-            #     y = y.T.contiguous()
-                #print("cmd_start_pos:", cmd_start_pos)
-            # print( x[cmd_start_pos].item() )
-
-            cmd_len, n_matched, predicted, y_trunc = pl_module.calc_cmd_acc(int(cmd_start_pos), x, y,
-                                                                            predicted=None)
-
-            if n_matched == cmd_len:
-                full_matches += 1
-            else:  # n_matched != n_cmd_tokens:
-                n_printed += 1
-                if n_printed < 10 or n_printed % 100 == 0 or igame > dataset.num_games - 3:
-                    if pl_module.is_rank_zero():
-                        print(
-                            f" {igame}.{istep}  ...   \t{n_matched} / {cmd_len}   \tacc: {n_matched / cmd_len:4f}")
-                        if tokenizer:
-                            y_predicted = predicted.cpu().tolist()
-                            y_ids = y_trunc.detach().cpu().tolist()
-
-                            # show_sample(tokenizer, f"{igame}.{istep}", y_predicted, y_ids, n_sampled=n_cmd_tokens)
-                            n_sampled = cmd_len
-                            _idx = f"{igame}.{istep}"
-                            print(f"({_idx})", tokenizer.decode(y_ids[0:6]), '[....]',
-                                  tokenizer.decode(y_ids[-5 - n_sampled:-n_sampled]), "|",
-                                  tokenizer.decode(y_ids[-n_sampled:]))
-                            print(f"<{_idx}>", tokenizer.decode(y_predicted[1:7]), '[....]',
-                                  tokenizer.decode(y_predicted[-5 - n_sampled:]))
-                            print()
-
-            total_cmd_tokens += cmd_len
-            total_matched += n_matched
-    return total_matched, total_cmd_tokens, full_matches, total_cmds
