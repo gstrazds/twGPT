@@ -221,14 +221,14 @@ class GPTLitModule(pl.LightningModule):
         assert self.cmd_end_marker is not None, "Setup ERROR: Need to call pl_module.set_cmd_markers()"
 
         if self.hparams.data.eval_filtering == 'cmd_prompts':
-            i_end_of_cmd = len(x) - 1
-            for i in range(cmd_start_pos, len(x)):
-                if x[i].item() == self.cmd_end_marker:
-                    # print("len cmd=", i-cmd_start_pos)
-                    i_end_of_cmd = i
+            i_end_of_cmd = len(x)   # - 1
+            for i in range(cmd_start_pos, len(y)):
+                # if x[i].item() == self.cmd_end_marker:
+                if y[i].item() == self.cmd_end_marker:
+                    i_end_of_cmd = i+1   # +1 is because y is left-shifted by 1 relative to x
                     break
-            cmd_len = i_end_of_cmd - cmd_start_pos
-        else: # self.hparams.data.eval_filtering != 'cmd_prompts':
+            cmd_len = i_end_of_cmd - cmd_start_pos   # NOTE: includes cmd_end_marker, but not cmd_start_marker
+        else: # self.hparams.data.eval_filtering == 'cmd_tokens':
             cmd_len = len(x) - cmd_start_pos - 1
 
         x = x.to(self.device)
@@ -239,17 +239,19 @@ class GPTLitModule(pl.LightningModule):
         # print("x:", x)
         # print("x_trunc:", x_trunc)
         # print(f"len(x_trunc) = {len(x_trunc)}")
-        assert x_trunc[int(cmd_start_pos)]\
-               == self.cmd_start_marker, f"{cmd_start_pos}: {x_trunc[cmd_start_pos]} {x_trunc}"
+        assert x_trunc[int(cmd_start_pos)] == self.cmd_start_marker, f"{cmd_start_pos}: {x_trunc[cmd_start_pos]} {x_trunc}"
+        assert y_trunc[-1] == self.cmd_end_marker, f"{y_trunc[-5:]} (cmd_pos={cmd_start_pos}) {y_trunc.shape}"
+        if cmd_start_pos > 0:
+            assert y_trunc[cmd_start_pos-1] == self.cmd_start_marker, f"{y_trunc[cmd_start_pos-1:cmd_start_pos+4]} (cmd_pos={cmd_start_pos}) {y_trunc.shape}"
+        # print(f"(cmd_pos={cmd_start_pos} cmd_len={cmd_len}) {y_trunc[max(0,cmd_start_pos-1):cmd_start_pos-1+cmd_len+1]} {y_trunc.shape}")
 
         if predicted is None:
-            predict_out = self.sample_ahead(x_trunc, n_samples=cmd_len, temperature=1.0, randsampling=False,
-                                           top_k=None)
+            predict_out = self.sample_ahead(x_trunc, n_samples=cmd_len, temperature=1.0, randsampling=False, top_k=None)
             if self.transpose_batches:
                 predict_out = predict_out.permute(*_swapped_first2(len(predict_out.shape))).contiguous()
         else:
             out = []
-            for x_ in x[0:cmd_start_pos+1]:
+            for x_ in x[0:cmd_start_pos+1]:    # copy the (ground truth) context/prefix
                 out.append(x_)    # TODO: do this more efficiently with one concat (or refactor to not do it at all)
             for logits in predicted[cmd_start_pos:cmd_start_pos+cmd_len]:
                 # print("calc_cmd_acc() - SHAPE of logits =", logits.shape)
@@ -258,7 +260,7 @@ class GPTLitModule(pl.LightningModule):
             predict_out = torch.stack(out)
         assert len(predict_out) == len(y_trunc) + 1, f"{len(predict_out)} {len(y_trunc)}"
         # the following assertion is a sanity check to confirm that x_trunc and y_trunc are aligned correctly
-        if cmd_start_pos > 1:  # at start-of-game we have no context, might predict incorrectly
+        if cmd_start_pos > 1:  # at start-of-game we have no context, predict_out doesn't have any GT prefix
             assert predict_out[1] == y_trunc[0], f"{predict_out[0:5]} {y_trunc[0:5]} (cmd_pos={cmd_start_pos}) {y_trunc.shape}"
         n_matched = int(
             torch.sum(predict_out[-cmd_len:] == y_trunc[-cmd_len:]))  # torch 1.7 has torch.count_nonzero()
@@ -291,7 +293,7 @@ class GPTLitModule(pl.LightningModule):
                            top_k=top_k)
         else:
             preds = sample(self.model, block_size, x_in, steps=n_samples, temperature=temperature, sample=randsampling, top_k=top_k)
-        # print(f"sample_ahead: x_in.size={x_in.size()} preds.size={preds.size()}")
+        # print(f"sample_ahead: n_samples={n_samples} x_in.size={x_in.size()} preds.size={preds.size()}")
         # return preds.detach()[0]
         return preds.detach().squeeze()  # reduce from (b=1,t) to a single dimension (a vector)
 
@@ -346,8 +348,9 @@ class GPTLitModule(pl.LightningModule):
                             print(f"({_idx})", tokenizer.decode(y_ids[0:6]), '[....]',
                                   tokenizer.decode(y_ids[-5 - n_sampled:-n_sampled]), "|",
                                   tokenizer.decode(y_ids[-n_sampled:]))
-                            print(f"<{_idx}>", tokenizer.decode(y_predicted[1:7]), '[....]',
-                                  tokenizer.decode(y_predicted[-5 - n_sampled:]))
+                            print(f"<{_idx}>", tokenizer.decode(y_predicted[1:7], skip_special_tokens=False), '[....]',
+                                  tokenizer.decode(y_predicted[-5 - n_sampled:], skip_special_tokens=False))
+                            # print(f"{len(y_predicted)} {list(y_predicted[-5 - n_sampled:])}")
                             print()
 
                 total_cmd_tokens += cmd_len

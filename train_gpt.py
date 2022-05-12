@@ -157,7 +157,7 @@ class SamplePredictions(Callback):
                                     pl_module.eval_predict_cmd_tokens(self.dataset, tokenizer=self.tokenizer)
             cmd_token_acc = n_matched / total_cmd_tokens
             cmd_acc = full_matches / num_cmds
-            rank_zero_info(f"VALIDATION CMD_TOKEN_ACC = {cmd_token_acc:.5f}  CMD_ACC = {cmd_acc:.5f}")
+            rank_zero_info(f"SAMPLED CMD_TOKEN_ACC = {cmd_token_acc:*100:02.2f} %  CMD_ACC = {cmd_acc:*100:02.2f} %")
             # (NOT YET SUPPORTED): pl_module.log("val_acc", n_matched / total_cmd_tokens, on_step=False, on_epoch=True, prog_bar=True)
             pl_module.logger.log_metrics({"cmd_acc": cmd_acc}, step=trainer.global_step)  #n_matched / total_cmd_tokens)
             pl_module.logger.log_metrics({"tok_acc": cmd_token_acc}, step=trainer.global_step)  #n_matched / total_cmd_tokens)
