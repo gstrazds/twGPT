@@ -153,11 +153,15 @@ class SamplePredictions(Callback):
 
     def on_validation_end(self, trainer, pl_module):
         if pl_module.is_rank_zero():
+            if hasattr(pl_module.hparams.eval, "show_samples"):
+                show_samples = pl_module.hparams.eval.show_samples
+            else:
+                show_samples = True
             n_matched, total_cmd_tokens, full_matches, num_cmds = \
-                                    pl_module.eval_predict_cmd_tokens(self.dataset, tokenizer=self.tokenizer)
+                        pl_module.eval_predict_cmd_tokens(self.dataset, tokenizer=self.tokenizer, show_samples=show_samples)
             cmd_token_acc = n_matched / total_cmd_tokens
             cmd_acc = full_matches / num_cmds
-            rank_zero_info(f"SAMPLED CMD_TOKEN_ACC = {cmd_token_acc:*100:02.2f} %  CMD_ACC = {cmd_acc:*100:02.2f} %")
+            rank_zero_info(f"\nSAMPLED CMD_TOKEN_ACC = {cmd_token_acc*100:02.2f} %  CMD_ACC = {cmd_acc*100:02.2f} %")
             # (NOT YET SUPPORTED): pl_module.log("val_acc", n_matched / total_cmd_tokens, on_step=False, on_epoch=True, prog_bar=True)
             pl_module.logger.log_metrics({"cmd_acc": cmd_acc}, step=trainer.global_step)  #n_matched / total_cmd_tokens)
             pl_module.logger.log_metrics({"tok_acc": cmd_token_acc}, step=trainer.global_step)  #n_matched / total_cmd_tokens)

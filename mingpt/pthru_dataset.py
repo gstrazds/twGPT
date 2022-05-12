@@ -33,7 +33,7 @@ class PlaythroughDataset(Dataset):
 
     def __init__(self, data, block_size, vocab_size: int = 0,
                  cmd_markers: Tuple[int,int] = None, game_start_tok: int = None,
-                 pad_tok: int = 0, span_filtering=None, batch_size=1):
+                 pad_tok: int = 0, span_filtering=None, batch_size=1, prompt_extra_len=None):
         self.block_size = block_size
         self.batch_size = batch_size
         self.vocab_size = vocab_size
@@ -43,6 +43,7 @@ class PlaythroughDataset(Dataset):
         self.game_start_tok = game_start_tok
         self.pad_tok = pad_tok
         self.span_filtering = span_filtering
+        self.prompt_extra_len = prompt_extra_len if prompt_extra_len is not None else -10
 
         if cmd_markers:
             self.cmd_start = cmd_markers[0]
@@ -77,7 +78,7 @@ class PlaythroughDataset(Dataset):
                     if current_game[0] is not None:
                         assert current_game[1] is None, f"{current_game} {ispan} {span}"
                         self.game_spans.append((current_game[0], -1))
-                    print("####################  # Games in dataset:", len(self.game_spans))
+                    print(f"####################  # Games in dataset: {len(self.game_spans)}  # cmds: {len(self.cmd_spans)}")
                     print(self.game_spans[0:3], self.game_spans[-2:])
         else:
             self.cmd_start = None
@@ -214,9 +215,10 @@ class PlaythroughDataset(Dataset):
 
             if self.span_filtering == PlaythroughDataset.TARGET_CMD_PROMPTS:
                 igame, istep = self._index_by_idx[idx]
-                start_idx, output_len, cmd_start_idx = self.get_cmd_prompt_for_gamestep(igame, istep, fetch_data=False,
+                start_idx, output_len, cmd_start_idx = self.get_cmd_prompt_for_gamestep(igame, istep,
+                                                                                        fetch_data=False,
                                                                                         block_size=-1,
-                                                                                        continuation=-10)  # +random extra len from 0 to 10
+                                                                                        continuation=self.prompt_extra_len)  # +random extra len from 0 to N
 
                 if False:
                     return self.get_data_tensor(start_idx, output_len, cmd_start_idx, pad_left=False, fill_id=self.pad_tok)
@@ -606,7 +608,8 @@ class PlaythroughDataModule(LightningDataModule):
                                                 game_start_tok=self.game_start_tok,
                                                 pad_tok=self.pad_tok,
                                                 span_filtering=self.train_filtering,  #PlaythroughDataset.TARGET_CMD_TOKENS)
-                                                batch_size=self.batch_size)
+                                                batch_size=self.batch_size,
+                                                prompt_extra_len=-10)  # include extra len after cmd (random range(0,-10)
 
         if self.val_file:
             eval_encoded = self.read_and_encode(self.val_file)
@@ -619,7 +622,8 @@ class PlaythroughDataModule(LightningDataModule):
                                                          game_start_tok=self.game_start_tok,
                                                          pad_tok=self.pad_tok,
                                                          span_filtering=self.eval_filtering,     #PlaythroughDataset.TARGET_CMD_TOKENS)
-                                                         batch_size=batch_size)
+                                                         batch_size=batch_size,
+                                                         prompt_extra_len=-1)  # include the cmd after the prompt
                                         #    span_filtering = PlaythroughDataset.TARGET_CMD_PROMPTS)  # eval accuracy
 
     def train_dataloader(self):

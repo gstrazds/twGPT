@@ -90,6 +90,7 @@ eval:
   root_dir: /ssd2tb/${eval.which_games}  # /ssd2tb/ftwc
   pthru_data_dir: ${.root_dir}/playthru_data/${.which_games}_${.which_set}  #mingpt-${eval.which_set}
   games_dir: ${.root_dir}/games_${.which_games}/${.which_set}/
+  show_samples: ${trainer.show_samples}
 
 wandb:
   proj: tw-${use_framework}-${model.arch}

@@ -51,7 +51,10 @@ def predict_cmd(pl_module, tokenizer, pthru_so_far: str, failed_cmds: List[str] 
         attempts -= 1
         predicted = pl_module.sample_ahead(x_dev, n_samples=N_AHEAD, temperature=temp, randsampling=sample, top_k=top_k)
         y_predicted = predicted.cpu().tolist()
-        print("****** PROMPT:", tokenizer.decode(y_predicted[max(0, len(y_predicted)-20-N_AHEAD):-N_AHEAD]))
+        if True:  # debug print
+            x_decoded = x_dev.cpu().tolist()
+            x_decoded = tokenizer.decode(x_decoded[max(0, len(x_decoded)-20-N_AHEAD):])
+            print("****** PROMPT:", x_decoded)  # tokenizer.decode(y_predicted[max(0, len(y_predicted)-20-N_AHEAD):-N_AHEAD]))
 
         predicted_cmd = y_predicted[-N_AHEAD:]
         end_marker = tokenizer.token_to_id(CMD_END_TOKEN)
@@ -275,8 +278,9 @@ def main(cfg: DictConfig) -> None:
     _datamodule.train_dataset.print_info("train_dataset")
     _datamodule.validation_dataset.print_info("validation_dataset")
     dataset = _datamodule.validation_dataset
-    if dataset.span_filtering == 'cmd_prompts':
+    if dataset.span_filtering == 'cmd_prompts' and pl_model.hparams.data.eval_filtering != 'cmd_prompts':
         print("***** ADJUSTING cfg.data.eval_filtering for backward compatibility *****")
+        pl_model.hparams.data.eval_filtering = 'cmd_prompts'
         pl_model.hparams.data.eval_filtering = 'cmd_prompts'
     if cfg.eval.play_games:
         # for each .pthru file in cfg.eval.pthru_data_dir, play the corresponding game from cfg.eval.games_dir
@@ -329,12 +333,16 @@ def main(cfg: DictConfig) -> None:
         results_dir = cfg.eval.results_dir
         trainer_epoch = 0
         trainer_global_step = 0
+        eval_start_time = datetime.datetime.now()
         tokens_matched, total_cmd_tokens, full_matches, num_cmds = pl_model.eval_predict_cmd_tokens(dataset,
-                                                                                           tokenizer=_datamodule.tokenizer)
+            tokenizer=_datamodule.tokenizer, show_samples=cfg.eval.show_samples)
+
+        eval_done_time = datetime.datetime.now()
+        rank_zero_info(f"----------- eval : {eval_done_time} -- elapsed: {eval_done_time - eval_start_time}")
         cmd_acc = full_matches / num_cmds
         token_acc = tokens_matched / total_cmd_tokens
-        print(f"TOKENS: {tokens_matched}/{total_cmd_tokens} acc={token_acc*100:02.2f} %")
-        print(f"CMDS: {full_matches}/{num_cmds} acc={cmd_acc*100:02.2f} %")
+        print(f"TOKENS: {tokens_matched}/{total_cmd_tokens} acc={token_acc*100:02.2f} % \t" +
+              f"CMDS: {full_matches}/{num_cmds} acc={cmd_acc*100:02.2f} %")
 
         if results_dir:  # (not hasattr(trainer, "rank") or trainer.rank == 0):
             results_file = f'{results_dir}/epoch{trainer_epoch:02d}_step{trainer_global_step:04d}_{token_acc:.4f}_{cmd_acc:.4f}.txt'
