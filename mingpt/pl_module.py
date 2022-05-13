@@ -99,7 +99,7 @@ class GPTLitModule(pl.LightningModule):
 
     def training_step(self, batch, batch_idx):
         if len(batch) == 3:
-            x, targets, _unused__pad_len = batch
+            x, targets, _unused__cmd_pos = batch
         else:
             assert len(batch) == 2, "Expecting each training batch to be a tuple of x,y,(padding) "+int(len(batch))
             x, targets = batch
@@ -172,14 +172,18 @@ class GPTLitModule(pl.LightningModule):
                     n_cmds += 1
                     if n_matched == n_toks:
                         n_matched_cmds += 1
-                # self.log('n_cmd_toks', n_cmd_tokens, on_step=True, on_epoch=True, prog_bar=False)
-                metrics['n_cmd_toks'] = n_cmd_tokens
-                # self.log('n_toks_matched', n_matched_tokens, on_step=True, on_epoch=True, prog_bar=False)
-                metrics['n_toks_matched'] = n_matched_tokens
-                # self.log('n_cmds', n_cmds, on_step=True, on_epoch=True, prog_bar=True)
-                metrics['n_cmds'] = n_cmds
-                # self.log('cmd_exact_match', n_matched_cmds, on_step=True, on_epoch=True, prog_bar=True)
-                metrics['cmd_exact_match'] = n_matched_cmds
+            else:  # 'cmd_tokens'
+                n_cmd_tokens += 1
+                # TODO: calculate n_matched_tokens for the batch
+
+            # self.log('n_cmd_toks', n_cmd_tokens, on_step=True, on_epoch=True, prog_bar=False)
+            metrics['n_cmd_toks'] = n_cmd_tokens
+            # self.log('n_toks_matched', n_matched_tokens, on_step=True, on_epoch=True, prog_bar=False)
+            metrics['n_toks_matched'] = n_matched_tokens
+            # self.log('n_cmds', n_cmds, on_step=True, on_epoch=True, prog_bar=True)
+            metrics['n_cmds'] = n_cmds
+            # self.log('cmd_exact_match', n_matched_cmds, on_step=True, on_epoch=True, prog_bar=True)
+            metrics['cmd_exact_match'] = n_matched_cmds
         return metrics
 
     def validation_epoch_end(self, outs):
@@ -192,8 +196,8 @@ class GPTLitModule(pl.LightningModule):
         n_matched_cmds = sum([x['cmd_exact_match'] for x in outs])
 
         self.log('tok_acc', n_matched_tokens/n_cmd_tokens, on_epoch=True, prog_bar=True)
-        self.log('n_cmd_toks', n_cmds, on_epoch=True, prog_bar=False)
-        self.log('cmd_acc', n_matched_cmds/n_cmds, on_epoch=True, prog_bar=True)
+        self.log('n_cmd_toks', n_cmd_tokens, on_epoch=True, prog_bar=False)
+        self.log('cmd_acc', n_matched_cmds/n_cmds if n_cmds else 0.0, on_epoch=True, prog_bar=True)
 
     def test_step(self, batch, batch_idx):
         metrics = self.validation_step(batch, batch_idx)
@@ -297,6 +301,26 @@ class GPTLitModule(pl.LightningModule):
         # print(f"sample_ahead: n_samples={n_samples} x_in.size={x_in.size()} preds.size={preds.size()}")
         # return preds.detach()[0]
         return preds.detach().squeeze()[-n_samples:]  # reduce from (b=1,t) to a single dimension (a vector)
+
+    def eval_predict_cmds_batched(self, dataset, dataloader, tokenizer=None, show_samples=False):
+        total_cmd_tokens = 0
+        total_matched = 0
+        full_matches = 0
+        total_cmds = 0
+        n_printed = 0
+        rec_idx = 0
+        max_eval_games = self.hparams.trainer.limit_val_batches
+        for ibatch, batch in enumerate(dataloader):
+            # assert len(batch) == 6, f"{len(batch)} == 6"     # each component is a list
+            batch_size = len(batch[0])    # NOTE: here we assume (b,t,...) ordering
+            print(f"[batch_{ibatch}] batch len={batch_size}")
+            for (x, y, cmd_pos, ) in zip(*batch):   #, igame, istep, nsteps
+                igame, istep, nsteps = dataset.get_game_step(rec_idx)    #nsteps = dataset.get_num_steps(igame)
+                print(f"\t[{rec_idx}] igame:{igame} istep:{istep} {nsteps}")
+                rec_idx += 1
+            # rec_idx += batch_size
+            total_cmds = rec_idx  #(each record targets one cmd)
+        return total_matched, total_cmd_tokens, full_matches, total_cmds
 
     def eval_predict_cmd_tokens(self, dataset, tokenizer=None, show_samples=False):
         total_cmd_tokens = 0

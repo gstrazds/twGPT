@@ -87,6 +87,14 @@ class PlaythroughDataset(Dataset):
 
         self.build_index()
 
+    def __len__(self):
+        if self.span_filtering == PlaythroughDataset.TARGET_CMD_PROMPTS:
+            return len(self._index) if self._index else 0
+        elif self.span_filtering == PlaythroughDataset.TARGET_CMD_TOKENS:
+            return len(self._tokspans) if self._tokspans else 0
+        return len(self.data) - self.block_size
+
+
     def print_info(self, name="PlaythroughDataset"):
         num_cmd_tokens = 0
         num_cmd_tokens = 0
@@ -109,8 +117,73 @@ class PlaythroughDataset(Dataset):
             return len(self.cmd_spans) - game_span[0]
         return game_span[1] - game_span[0]  # number of cmd_spans
 
+    def num_steps_total(self) -> int:
+        n_total = 0
+        for igame in range(self.num_games):
+            n_total += self.get_num_steps(igame)
+        return n_total
 
-    def get_token_idx_spans(self, igame, start_step=0, end_step=-1, inclusive=(True,True)):
+    def _add_to_index(self, value):
+        nextpos = len(self._index)
+        if value not in self._index:
+            self._index[value] = nextpos
+            assert len(self._index) == nextpos+1
+        return len(self._index)
+
+    def _add_to_tokspan_index(self, span):
+        nextpos = len(self._tokspans)
+        if span not in self._tokspans:
+            self._tokspans[span] = nextpos
+            assert len(self._tokspans) == nextpos+1
+        return len(self._tokspans)
+
+    def build_index(self):
+        self._index = {}  # NOTE: HERE WE DEPEND ON DICTIONARIES PRESERVING INSERTION ORDER (Python 3.6+)
+        self._tokspans = {}
+        if self.cmd_spans is None:
+            return  # we can't index anything
+        if self.span_filtering == PlaythroughDataset.TARGET_CMD_TOKENS \
+            or self.span_filtering == PlaythroughDataset.TARGET_CMD_PROMPTS:
+            # index only within-game spans that end within a cmd_span
+            for igame in range(self.num_games):
+                # game_start_idx = self.get_token_idx_spans(igame)[0][0]  # idx of start of this game
+                for step in range(self.get_num_steps(igame)):
+                    # from token spans that end with a cmd sequence
+                    # if self.span_filtering == PlaythroughDataset.TARGET_CMD_PROMPTS:
+                    # one data sample per step of each game
+                    self._add_to_index((igame, step))
+                    # else:  # self.span_filtering == PlaythroughDataset.TARGET_CMD_TOKENS  # return a record ending at each tokan
+
+                    # one data sample per cmd token of each step of each game
+                    span, cmd0_span, cmd1_span = self.get_token_spans(igame, 0, step, inclusive=(True, True))
+                    #cmd0_len = _span_len(cmd0_span)
+                    cmd1_len = _span_len(cmd1_span)
+                    game_start_idx = span[0]  # idx of start of this game
+                    cmd_start_idx = cmd1_span[0]
+                    # if _span_len(span) >= self.block_size:
+                    for j in range(cmd1_len):  # for each subspan that ends within the next_cmd token seq
+                        _start_idx = span[1]-self.block_size-j+1
+                        if _start_idx < game_start_idx:
+                            # print(f"Discarding span {subspan} from eval index")
+                            # continue  # skip this one, it doesn't satisfy reqs
+                            _start_idx = game_start_idx  # clip to start of game (block will be padded on retrieval)
+                        subspan = (_start_idx, span[1]-j, cmd_start_idx) # clipped span, len == block_size or less
+                        self._add_to_tokspan_index(subspan)  # this subspan gets included in the dataset
+        else:  # index all within-game spans of len self.block_size
+            if self.span_filtering:
+                assert False, f"Misconfiguration Error: unrecognized span_filtering option: {self.span_filtering}"
+            for igame in range(self.num_games):
+                span, _, _ = self.get_token_spans(igame)  # all the tokens for this game
+                if _span_len(span) < self.block_size+1:
+                    print(f"_index does not include game {igame} because it is too short {span}")
+                    continue
+                for j in range(_span_len(span)-self.block_size):  # for each subspan of len blocksize
+                    subspan = (span[0]+j, span[0]+j+self.block_size+1, -1)
+                    self._add_to_tokspan_index(subspan)  # this subspan gets included in the dataset
+        self._index_by_idx = list(self._index)  # python array: O(1) for access by position (idx)
+        self._index_tokspans_by_idx = list(self._tokspans)
+
+    def get_token_spans(self, igame, start_step=0, end_step=-1, inclusive=(True, True)):
         # returns 3 spans: start and end index into the token id data
         # one span for each of 1) the game, 2 & 3) the cmd_seq for start_step & end_step
         # inclusive[0]: include the command sequence at the beginning of the start_step
@@ -145,67 +218,10 @@ class PlaythroughDataset(Dataset):
             end_idx = end_cmd_span[1]
         return (start_idx, end_idx), start_cmd_span, end_cmd_span
 
-
-    def num_steps_total(self) -> int:
-        n_total = 0
-        for igame in range(self.num_games):
-            n_total += self.get_num_steps(igame)
-        return n_total
-
-    def _add_to_index(self, value):
-        pos = len(self._index)
-        if value not in self._index:
-            self._index[value] = pos
-            assert len(self._index) == pos+1
-        return len(self._index)
-
-    def build_index(self):
-        self._index = {}  # NOTE: WE DEPEND ON DICTIONARIES PRESERVING INSERTION ORDER (Python 3.6+)
-        if self.cmd_spans is None:
-            return  # we can't index anything
-        if self.span_filtering == PlaythroughDataset.TARGET_CMD_TOKENS \
-            or self.span_filtering == PlaythroughDataset.TARGET_CMD_PROMPTS:
-            # index only within-game spans that end within a cmd_span
-            for igame in range(self.num_games):
-                # game_start_idx = self.get_token_idx_spans(igame)[0][0]  # idx of start of this game
-                for step in range(self.get_num_steps(igame)):
-                    # from token spans that end with a cmd sequence
-                    if self.span_filtering == PlaythroughDataset.TARGET_CMD_PROMPTS:
-                        # one data sample per step of each game
-                        self._add_to_index((igame, step))
-                    else:  # self.span_filtering == PlaythroughDataset.TARGET_CMD_TOKENS  # return a record ending at each tokan
-                        # one data sample per cmd token of each step of each game
-                        span, cmd0_span, cmd1_span = self.get_token_idx_spans(igame, 0, step, inclusive=(True,True))
-                        #cmd0_len = _span_len(cmd0_span)
-                        cmd1_len = _span_len(cmd1_span)
-                        game_start_idx = span[0]  # idx of start of this game
-                        cmd_start_idx = cmd1_span[0]
-                        # if _span_len(span) >= self.block_size:
-                        for j in range(cmd1_len):  # for each subspan that ends within the next_cmd token seq
-                            _start_idx = span[1]-self.block_size-j+1
-                            if _start_idx < game_start_idx:
-                                # print(f"Discarding span {subspan} from eval index")
-                                # continue  # skip this one, it doesn't satisfy reqs
-                                _start_idx = game_start_idx  # clip to start of game (block will be padded on retrieval)
-                            subspan = (_start_idx, span[1]-j, cmd_start_idx) # clipped span, len == block_size or less
-                            self._add_to_index(subspan)  # this subspan gets included in the dataset
-        else:  # index all within-game spans of len self.block_size
-            if self.span_filtering:
-                assert False, f"Misconfiguration Error: unrecognized span_filtering option: {self.span_filtering}"
-            for igame in range(self.num_games):
-                span, _, _ = self.get_token_idx_spans(igame)  # all the tokens for this game
-                if _span_len(span) < self.block_size+1:
-                    print(f"_index does not include game {igame} because it is too short {span}")
-                    continue
-                for j in range(_span_len(span)-self.block_size):  # for each subspan of len blocksize
-                    subspan = (span[0]+j, span[0]+j+self.block_size+1, -1)
-                    self._add_to_index(subspan[0])  # this subspan gets included in the dataset
-        self._index_by_idx = list(self._index)  # python array: O(1) for access by position (idx)
-
-    def __len__(self):
-        if self._index:
-            return len(self._index)
-        return len(self.data) - self.block_size
+    def get_game_step(self, idx):   # from *unshuffled* dataset idx get (igame, istep)  [only for validation & test]
+        igame, istep = self._index_by_idx[idx]
+        nsteps = self.get_num_steps(igame)
+        return igame, istep, nsteps
 
     def __getitem__(self, idx):
         # grab a chunk of (block_size + 1) characters from the data
@@ -214,58 +230,57 @@ class PlaythroughDataset(Dataset):
             assert len(self._index) == len(self._index_by_idx)   # consistency check
 
             if self.span_filtering == PlaythroughDataset.TARGET_CMD_PROMPTS:
-                igame, istep = self._index_by_idx[idx]
+                igame, istep, _nsteps_ = self.get_game_step(idx)
                 start_idx, output_len, cmd_start_idx = self.get_cmd_prompt_for_gamestep(igame, istep,
                                                                                         fetch_data=False,
                                                                                         block_size=-1,
                                                                                         continuation=self.prompt_extra_len)  # +random extra len from 0 to N
-
-                if False:
-                    return self.get_data_tensor(start_idx, output_len, cmd_start_idx, pad_left=False, fill_id=self.pad_tok)
+                # if False:
+                #     return self.get_data_tensor(start_idx, output_len, cmd_start_idx, pad_left=False, fill_id=self.pad_tok)
 
             elif self.span_filtering == PlaythroughDataset.TARGET_CMD_TOKENS:
-                start_idx, end_idx, cmd_start_idx = self._index_by_idx[idx]
+                start_idx, end_idx, cmd_start_idx = self._index_tokspans_by_idx[idx]
                 start_idx, output_len, cmd_start_idx = self._limit_to_block_size(start_idx, end_idx, cmd_start_idx)
                 if False:
                     return self.get_data_tensor(start_idx, output_len, cmd_start_idx, pad_left=True, fill_id=self.pad_tok)
+            else:
+                assert False, f"UNSUPPORTED span_filtering={self.span_filtering} ({idx}:{self._index[idx]})"
             return start_idx, output_len, cmd_start_idx
-        #else:
-            assert False, f"UNSUPPORTED span_filtering={self.span_filtering} ({idx}:{self._index[idx]})"
-            idx = self._index_by_idx[idx]
+
+        # """
+        # arrange data and targets so that the first i elements of x
+        # will be asked to predict the i-th element of y. Notice that
+        # the eventual language model will actually make block_size
+        # individual predictions at the same time based on this data,
+        # so we are being clever and amortizing the cost of the forward
+        # pass of the network. So for example if block_size is 4, then
+        # we could e.g. sample a chunk of text "hello", the integers in
+        # x will correspond to "hell" and in y will be "ello". This will
+        # then actually "multitask" 4 separate examples at the same time
+        # in the language model:
+        # - given just "h", please predict "e" as next
+        # - given "he" please predict "l" next
+        # - given "hel" predict "l" next
+        # - given "hell" predict "o" next
+        #
+        # In addition, because the DataLoader will create batches of examples,
+        # every forward/backward pass during traning will simultaneously train
+        # a LOT of predictions, amortizing a lot of computation. In particular,
+        # for a batched input of integers X (B, T) where B is batch size and
+        # T is block_size and Y (B, T), the network will during training be
+        # simultaneously training to make B*T predictions, all at once! Of course,
+        # at test time we can paralellize across batch B, but unlike during training
+        # we cannot parallelize across the time dimension T - we have to run
+        # a forward pass of the network to recover the next single character of the
+        # sequence along each batch dimension, and repeatedly always feed in a next
+        # character to get the next one.
+        #
+        # So yes there is a big asymmetry between train/test time of autoregressive
+        # models. During training we can go B*T at a time with every forward pass,
+        # but during test time we can only go B at a time, T times, with T forward
+        # passes.
+        # """
         chunk = self.data[idx:idx + self.block_size + 1]
-        """
-        arrange data and targets so that the first i elements of x
-        will be asked to predict the i-th element of y. Notice that
-        the eventual language model will actually make block_size
-        individual predictions at the same time based on this data,
-        so we are being clever and amortizing the cost of the forward
-        pass of the network. So for example if block_size is 4, then
-        we could e.g. sample a chunk of text "hello", the integers in
-        x will correspond to "hell" and in y will be "ello". This will
-        then actually "multitask" 4 separate examples at the same time
-        in the language model:
-        - given just "h", please predict "e" as next
-        - given "he" please predict "l" next
-        - given "hel" predict "l" next
-        - given "hell" predict "o" next
-        
-        In addition, because the DataLoader will create batches of examples,
-        every forward/backward pass during traning will simultaneously train
-        a LOT of predictions, amortizing a lot of computation. In particular,
-        for a batched input of integers X (B, T) where B is batch size and
-        T is block_size and Y (B, T), the network will during training be
-        simultaneously training to make B*T predictions, all at once! Of course,
-        at test time we can paralellize across batch B, but unlike during training
-        we cannot parallelize across the time dimension T - we have to run
-        a forward pass of the network to recover the next single character of the 
-        sequence along each batch dimension, and repeatedly always feed in a next
-        character to get the next one.
-        
-        So yes there is a big asymmetry between train/test time of autoregressive
-        models. During training we can go B*T at a time with every forward pass,
-        but during test time we can only go B at a time, T times, with T forward 
-        passes.
-        """
         x = torch.tensor(chunk[:-1], dtype=torch.long)
         y = torch.tensor(chunk[1:], dtype=torch.long)
         return x, y
@@ -278,7 +293,7 @@ class PlaythroughDataset(Dataset):
         icmd = 0
         if fill_id is None:
             fill_id = self.pad_tok
-        gamepthru_span, _, cmd1_span = self.get_token_idx_spans(igame, 0, istep, inclusive=(True,True))
+        gamepthru_span, _, cmd1_span = self.get_token_spans(igame, 0, istep, inclusive=(True, True))
         cmd1_len = _span_len(cmd1_span)
         cmd_span = (gamepthru_span[1]-cmd1_len+1, gamepthru_span[1])
         # np_icmd = np.where((self.cmd_spans == cmd_span).all(axis=1))[0]

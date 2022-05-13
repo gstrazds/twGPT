@@ -278,6 +278,7 @@ def main(cfg: DictConfig) -> None:
     _datamodule.train_dataset.print_info("train_dataset")
     _datamodule.validation_dataset.print_info("validation_dataset")
     dataset = _datamodule.validation_dataset
+    dataloader = _datamodule.val_dataloader()
     if dataset.span_filtering == 'cmd_prompts' and pl_model.hparams.data.eval_filtering != 'cmd_prompts':
         print("***** ADJUSTING cfg.data.eval_filtering for backward compatibility *****")
         pl_model.hparams.data.eval_filtering = 'cmd_prompts'
@@ -334,13 +335,16 @@ def main(cfg: DictConfig) -> None:
         trainer_epoch = 0
         trainer_global_step = 0
         eval_start_time = datetime.datetime.now()
-        tokens_matched, total_cmd_tokens, full_matches, num_cmds = pl_model.eval_predict_cmd_tokens(dataset,
+
+        tokens_matched, total_cmd_tokens, full_matches, num_cmds = pl_model.eval_predict_cmds_batched(dataset, dataloader,
             tokenizer=_datamodule.tokenizer, show_samples=cfg.eval.show_samples)
+        # tokens_matched, total_cmd_tokens, full_matches, num_cmds = pl_model.eval_predict_cmd_tokens(dataset,
+        #     tokenizer=_datamodule.tokenizer, show_samples=cfg.eval.show_samples)
 
         eval_done_time = datetime.datetime.now()
         rank_zero_info(f"----------- eval : {eval_done_time} -- elapsed: {eval_done_time - eval_start_time}")
-        cmd_acc = full_matches / num_cmds
-        token_acc = tokens_matched / total_cmd_tokens
+        cmd_acc = 0.0 if num_cmds == 0 else full_matches / num_cmds
+        token_acc = 0.0 if total_cmd_tokens == 0 else tokens_matched / total_cmd_tokens
         print(f"TOKENS: {tokens_matched}/{total_cmd_tokens} acc={token_acc*100:02.2f} % \t" +
               f"CMDS: {full_matches}/{num_cmds} acc={cmd_acc*100:02.2f} %")
 
@@ -362,9 +366,9 @@ def debug_print_some_spans(dataset):
         print("Game", i, "num_steps:", num_steps, game_span)
         for j in range(num_steps):
             print(f"\tcmd_span[{game_span[0] + j}] {dataset.cmd_spans[game_span[0] + j]}", end=' ')
-            print(f"{dataset.get_token_idx_spans(i, 0, j + 1, inclusive=(True, True))[0]}")
+            print(f"{dataset.get_token_spans(i, 0, j + 1, inclusive=(True, True))[0]}")
             # print("cmd_prompt_for_gamestep:", dataset.get_cmd_prompt_for_gamestep(i,j))
-        print("Game", i, "token span:", dataset.get_token_idx_spans(i))
+        print("Game", i, "token span:", dataset.get_token_spans(i))
         print()
     # print the same info for the last game in the dataset
     i = dataset.num_games - 1
@@ -373,8 +377,8 @@ def debug_print_some_spans(dataset):
     print("Game", i, "num_steps:", num_steps, game_span)
     for j in range(num_steps):
         print(f"\tcmd_span[{game_span[0] + j}] {dataset.cmd_spans[game_span[0] + j]}", end=' ')
-        print(f"{dataset.get_token_idx_spans(i, j, j + 1, inclusive=(True, True))[0]}")
-    game_span, cmd0_span, cmd1_span = dataset.get_token_idx_spans(i)
+        print(f"{dataset.get_token_spans(i, j, j + 1, inclusive=(True, True))[0]}")
+    game_span, cmd0_span, cmd1_span = dataset.get_token_spans(i)
     print("Game", i, "token span:", game_span, cmd0_span, cmd1_span)
     # token_list = dataset.data[last_range[0]:last_range[1]]
     # print(_datamodule.tokenizer.decode(token_list))

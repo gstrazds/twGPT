@@ -14,7 +14,7 @@ from pytorch_lightning.loggers import WandbLogger, TensorBoardLogger
 from pytorch_lightning.callbacks import Callback, EarlyStopping, ModelCheckpoint
 from pytorch_lightning.utilities import rank_zero_info
 
-from mingpt.pthru_dataset import PlaythroughDataModule
+from mingpt.pthru_dataset import PlaythroughDataModule, PlaythroughDataset
 from mingpt.char_dataset import CharDataModule
 from mingpt.pl_module import GPTLitModule, PADDING_INDEX
 from mingpt.callback import CUDACallback
@@ -103,6 +103,8 @@ def train_gpt(cfg: DictConfig) -> None:
         callback_list.append(early_stopping)
 
     if cfg.trainer.show_samples and cfg.train_ftwc:
+        assert _datamodule.validation_dataset.span_filtering == PlaythroughDataset.TARGET_CMD_PROMPTS, \
+            f"trainer.show_samples requires data.eval_filtering='cmd_prompts' INCOMPATIBLE:{_datamodule.validation_dataset.span_filtering}"
         show_samples_callback = SamplePredictions(_datamodule.tokenizer, _datamodule.validation_dataset, out_dir="./", how_many=5)
         callback_list.append(show_samples_callback)
 
