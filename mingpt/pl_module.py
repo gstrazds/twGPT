@@ -316,10 +316,27 @@ class GPTLitModule(pl.LightningModule):
             print(f"[batch_{ibatch}] batch len={batch_size}")
             for (x, y, cmd_pos, ) in zip(*batch):   #, igame, istep, nsteps
                 igame, istep, nsteps = dataset.get_game_step(rec_idx)    #nsteps = dataset.get_num_steps(igame)
-                print(f"\t[{rec_idx}] igame:{igame} istep:{istep} {nsteps}")
+                # print(f"\t[{rec_idx}] igame:{igame} istep:{istep} {nsteps}")
+                if max_eval_games and max_eval_games > 0 and igame > max_eval_games:
+                    continue  # skip eval
+
+                if show_samples and (igame % 10 == 0) and (istep == 1):
+                    rank_zero_info(f"+{igame} [:{nsteps}] --------------------------")
+
+                total_cmds = rec_idx + 1
+
+                cmd_len, n_matched, predicted, y_trunc = self.calc_cmd_acc(int(cmd_pos), x, y, seq_logits=None)
+                total_cmd_tokens += cmd_len
+                total_matched += n_matched
+
+                if n_matched == cmd_len:
+                    full_matches += 1
+                if show_samples and self.is_rank_zero() and (n_matched != cmd_len or istep == 0):
+                    n_printed += 1
+                    _maybe_show_sample(igame, istep, predicted, y_trunc, n_matched, cmd_len, n_printed, dataset.num_games,
+                                       tokenizer=tokenizer)
                 rec_idx += 1
-            # rec_idx += batch_size
-            total_cmds = rec_idx  #(each record targets one cmd)
+            # total_cmds = rec_idx  #(each record targets one cmd)
         return total_matched, total_cmd_tokens, full_matches, total_cmds
 
     def eval_predict_cmd_tokens(self, dataset, tokenizer=None, show_samples=False):
@@ -340,7 +357,7 @@ class GPTLitModule(pl.LightningModule):
                 rank_zero_info(f"+{igame} [:{dataset.get_num_steps(igame)}] --------------------------")
             if hasattr(self, 'reset_episode'):
                 self.reset_episode()
-            for istep in range(1, dataset.get_num_steps(igame)):
+            for istep in range(1, dataset.get_num_steps(igame)):  #NOTE: we skip istep==0, because of insufficient prompt
                 total_cmds += 1
                 # _span_debug, _, _ = dataset.get_token_idxs(igame, 0, istep)
                 # print(f"get_token_idxs(igame={igame}, 0, end_step={istep})  {_span_debug}")
@@ -352,35 +369,40 @@ class GPTLitModule(pl.LightningModule):
                     #print("cmd_start_pos:", cmd_start_pos)
                 # print( x[cmd_start_pos].item() )
 
-                cmd_len, n_matched, predicted, y_trunc = self.calc_cmd_acc(int(cmd_start_pos), x, y,
-                                                                           seq_logits=None)
+                cmd_len, n_matched, predicted, y_trunc = self.calc_cmd_acc(int(cmd_start_pos), x, y, seq_logits=None)
+                total_cmd_tokens += cmd_len
+                total_matched += n_matched
 
                 if n_matched == cmd_len:
                     full_matches += 1
-                elif show_samples:  # and n_matched != n_cmd_tokens:
+                if show_samples and self.is_rank_zero() and n_matched != cmd_len:
                     n_printed += 1
-                    if n_printed < 10 or n_printed % 100 == 0 or igame > dataset.num_games - 3:
-                        rank_zero_info(
-                            f" {igame}.{istep}  ...   \t{n_matched} / {cmd_len}   \tacc: {n_matched / cmd_len:4f}")
-                        if tokenizer is not None and self.is_rank_zero():
-                            y_predicted = predicted.cpu().tolist()
-                            y_ids = y_trunc.detach().cpu().tolist()
+                    _maybe_show_sample(igame, istep, predicted, y_trunc, n_matched, cmd_len, n_printed, dataset.num_games,
+                                       tokenizer=tokenizer)
 
-                            # show_sample(tokenizer, f"{igame}.{istep}", y_predicted, y_ids, n_sampled=n_cmd_tokens)
-                            n_sampled = cmd_len
-                            _idx = f"{igame}.{istep}"
-                            print(f"({_idx})", tokenizer.decode(y_ids[0:6]), '[....]',
-                                  tokenizer.decode(y_ids[-5 - n_sampled:-n_sampled]), "|",
-                                  tokenizer.decode(y_ids[-n_sampled:]))
-                            print(f"<{_idx}>", tokenizer.decode(y_ids[0:6], skip_special_tokens=False), '[....]',
-                                  tokenizer.decode(y_ids[-5 - n_sampled:-n_sampled]),
-                                  tokenizer.decode(y_predicted[- n_sampled:], skip_special_tokens=False))
-                            # print(f"{len(y_predicted)} {list(y_predicted[-5 - n_sampled:])}")
-                            print()
-
-                total_cmd_tokens += cmd_len
-                total_matched += n_matched
         return total_matched, total_cmd_tokens, full_matches, total_cmds
+
+
+def _maybe_show_sample(igame, istep, predicted, y_trunc, n_matched, cmd_len, n_printed, max_num_games, tokenizer=None):
+    if n_printed < 10 or n_printed % 100 == 0 or igame > max_num_games - 3:
+        rank_zero_info(
+                f" {igame}.{istep}  ...   \t{n_matched} / {cmd_len}   \tacc: {n_matched / cmd_len:4f}")
+        if tokenizer is not None:
+            y_predicted = predicted.cpu().tolist()
+            y_ids = y_trunc.detach().cpu().tolist()
+
+            # show_sample(tokenizer, f"{igame}.{istep}", y_predicted, y_ids, n_sampled=n_cmd_tokens)
+            n_sampled = cmd_len
+            _idx = f"{igame}.{istep}"
+            print(f"({_idx})", tokenizer.decode(y_ids[0:6]), '[....]',
+                  tokenizer.decode(y_ids[-5 - n_sampled:-n_sampled]), "|",
+                  tokenizer.decode(y_ids[-n_sampled:]))
+            print(f"<{_idx}>", tokenizer.decode(y_ids[0:6], skip_special_tokens=False), '[....]',
+                  tokenizer.decode(y_ids[-5 - n_sampled:-n_sampled]),
+                  tokenizer.decode(y_predicted[- n_sampled:], skip_special_tokens=False))
+            # print(f"{len(y_predicted)} {list(y_predicted[-5 - n_sampled:])}")
+            print()
+
 
 
 @torch.no_grad()

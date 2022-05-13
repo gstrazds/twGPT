@@ -89,7 +89,7 @@ class PlaythroughDataset(Dataset):
 
     def __len__(self):
         if self.span_filtering == PlaythroughDataset.TARGET_CMD_PROMPTS:
-            return len(self._index) if self._index else 0
+            return len(self._index_by_idx) if self._index_by_idx else 0
         elif self.span_filtering == PlaythroughDataset.TARGET_CMD_TOKENS:
             return len(self._tokspans) if self._tokspans else 0
         return len(self.data) - self.block_size
@@ -180,7 +180,8 @@ class PlaythroughDataset(Dataset):
                 for j in range(_span_len(span)-self.block_size):  # for each subspan of len blocksize
                     subspan = (span[0]+j, span[0]+j+self.block_size+1, -1)
                     self._add_to_tokspan_index(subspan)  # this subspan gets included in the dataset
-        self._index_by_idx = list(self._index)  # python array: O(1) for access by position (idx)
+        # optimization: create secondary index for access by position (idx) in linear time - python array: O(1)
+        self._index_by_idx = [gamestep for gamestep in self._index if gamestep[1] > 0]
         self._index_tokspans_by_idx = list(self._tokspans)
 
     def get_token_spans(self, igame, start_step=0, end_step=-1, inclusive=(True, True)):
@@ -226,8 +227,8 @@ class PlaythroughDataset(Dataset):
     def __getitem__(self, idx):
         # grab a chunk of (block_size + 1) characters from the data
         if self._index:
-            assert self._index_by_idx
-            assert len(self._index) == len(self._index_by_idx)   # consistency check
+            assert self._index_by_idx  # consistency check
+            assert len(self._index) == len(self._index_by_idx) + self.num_games  # initial >>[ start ]<< is excluded from _index_by_idx
 
             if self.span_filtering == PlaythroughDataset.TARGET_CMD_PROMPTS:
                 igame, istep, _nsteps_ = self.get_game_step(idx)
@@ -647,7 +648,7 @@ class PlaythroughDataModule(LightningDataModule):
             batch_size=self.batch_size,
             shuffle=True,
             num_workers=self.num_workers,
-            drop_last=True,
+            drop_last=False,  # NOTE: if need to transpose batches to (t, b, ..),  drop_last=True can help
             pin_memory=True,
             persistent_workers=True if self.num_workers > 0 else False,
             collate_fn=lambda batch: self.train_dataset.pad_collate(batch, align_cmds=False)
@@ -668,7 +669,7 @@ class PlaythroughDataModule(LightningDataModule):
             batch_size=self.validation_dataset.batch_size,
             shuffle=False,
             num_workers=self.num_workers,
-            drop_last=True,
+            drop_last=False,
             pin_memory=True,
             persistent_workers=True if self.num_workers > 0 else False,
             collate_fn=lambda batch: self.validation_dataset.pad_collate(batch, align_cmds=False)

@@ -105,7 +105,9 @@ def train_gpt(cfg: DictConfig) -> None:
     if cfg.trainer.show_samples and cfg.train_ftwc:
         assert _datamodule.validation_dataset.span_filtering == PlaythroughDataset.TARGET_CMD_PROMPTS, \
             f"trainer.show_samples requires data.eval_filtering='cmd_prompts' INCOMPATIBLE:{_datamodule.validation_dataset.span_filtering}"
-        show_samples_callback = SamplePredictions(_datamodule.tokenizer, _datamodule.validation_dataset, out_dir="./", how_many=5)
+        val_dataloader = _datamodule.val_dataloader()
+        show_samples_callback = SamplePredictions(_datamodule.tokenizer, _datamodule.validation_dataset, out_dir="./", how_many=5,
+                                                  dataloader=val_dataloader)
         callback_list.append(show_samples_callback)
 
     callback_list.append(CUDACallback())
@@ -146,10 +148,11 @@ def show_sample(tokenizer, idx, y_predicted, y_ids, n_sampled=5):
 
 
 class SamplePredictions(Callback):
-    def __init__(self, tokenizer, dataset, how_many=3, out_dir=None, **kwargs):
+    def __init__(self, tokenizer, dataset, how_many=3, out_dir=None, dataloader=None, **kwargs):
         super().__init__(**kwargs)
         self.tokenizer = tokenizer
         self.dataset = dataset
+        self.dataloader = dataloader
         self.how_many = how_many
         self.out_dir = out_dir
 
@@ -160,7 +163,10 @@ class SamplePredictions(Callback):
             else:
                 show_samples = True
             n_matched, total_cmd_tokens, full_matches, num_cmds = \
-                        pl_module.eval_predict_cmd_tokens(self.dataset, tokenizer=self.tokenizer, show_samples=show_samples)
+                    pl_module.eval_predict_cmds_batched(self.dataset, self.dataloader,
+                                                         tokenizer=self.tokenizer,
+                                                         show_samples=show_samples)
+                    # pl_module.eval_predict_cmd_tokens(self.dataset, tokenizer=self.tokenizer, show_samples=show_samples)
             cmd_token_acc = n_matched / total_cmd_tokens
             cmd_acc = full_matches / num_cmds
             rank_zero_info(f"\nSAMPLED CMD_TOKEN_ACC = {cmd_token_acc*100:02.2f} %  CMD_ACC = {cmd_acc*100:02.2f} %")
