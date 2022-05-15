@@ -18,10 +18,10 @@ class LearningRateDecayCallback(pl.Callback):
 
         optimizer = trainer.optimizers[0]
         # _, y = batch
-        if len(batch) == 3:
-            _, y, _unused__pad_len = batch
+        if len(batch) == 4:
+            _, y, _unused__cmd_pos, _unused_cmd_len = batch
         else:
-            assert len(batch) == 2, "Expecting each training batch to be a tuple of x,y "+int(len(batch))
+            assert len(batch) == 2, "Expecting each training batch to be a tuple of x,y "+str(int(len(batch)))
             _, y = batch
 
         if self.lr_decay:   # if False, this callback does nothing

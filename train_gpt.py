@@ -80,9 +80,9 @@ def train_gpt(cfg: DictConfig) -> None:
     _datamodule.validation_dataset.print_info("validation_dataset")
 
     checkpoint_callback = ModelCheckpoint(
-        monitor='cmd_acc',  #'train_loss_step',
+        monitor='val_acc',  #'train_loss_step',
         # dirpath='my/path/',
-        filename=model_data_id+'-{epoch}-{step}-{cmd_acc:.3f}-{val_loss:.3f}',   # {val_acc:.2f}'
+        filename=model_data_id+'-{epoch}-{step}-{val_acc:.3f}-{val_loss:.3f}',   # {val_acc:.2f}'
         save_top_k=cfg.trainer.save_top_k,
         mode='max', #'min',
     )
@@ -98,11 +98,11 @@ def train_gpt(cfg: DictConfig) -> None:
         callback_list.append(lr_decay)
 
     if cfg.trainer.patience > 0:
-        early_stopping = EarlyStopping('cmd_acc', mode='max', patience=cfg.trainer.patience)
+        early_stopping = EarlyStopping('val_acc', mode='max', patience=cfg.trainer.patience)
         # early_stopping = EarlyStopping('val_acc', mode='max', patience=5)
         callback_list.append(early_stopping)
 
-    if cfg.trainer.show_samples and cfg.train_ftwc:
+    if hasattr(cfg.trainer, 'eval_predict') and cfg.trainer.eval_predict and cfg.train_ftwc:
         assert _datamodule.validation_dataset.span_filtering == PlaythroughDataset.TARGET_CMD_PROMPTS, \
             f"trainer.show_samples requires data.eval_filtering='cmd_prompts' INCOMPATIBLE:{_datamodule.validation_dataset.span_filtering}"
         val_dataloader = _datamodule.val_dataloader()
@@ -118,7 +118,7 @@ def train_gpt(cfg: DictConfig) -> None:
     if cfg.use_wandb:
         if pl_model.is_rank_zero():
             wandb.init(project=cfg.wandb.proj, name=EXPERIMENT_NAME, settings=wandb.Settings(start_method="thread"))
-            wandb.define_metric('cmd_acc', summary='max')
+            wandb.define_metric('val_acc', summary='max')
         wandb_logger = WandbLogger(project=cfg.wandb.proj, name=EXPERIMENT_NAME)
         loggers_list.append(wandb_logger)
 
@@ -163,20 +163,20 @@ class SamplePredictions(Callback):
             else:
                 show_samples = True
             n_matched, total_cmd_tokens, full_matches, num_cmds = \
-                    pl_module.eval_predict_cmds_batched(self.dataset, self.dataloader,
-                                                         tokenizer=self.tokenizer,
-                                                         show_samples=show_samples)
+                    pl_module.eval_predict_cmd_tokens(self.dataset, tokenizer=self.tokenizer, show_samples=show_samples)
+                    # pl_module.eval_predict_cmds_batched(self.dataset, self.dataloader,
+                    #                                      tokenizer=self.tokenizer,
+                    #                                      show_samples=show_samples)
                     # pl_module.eval_predict_cmd_tokens(self.dataset, tokenizer=self.tokenizer, show_samples=show_samples)
-            cmd_token_acc = n_matched / total_cmd_tokens
+            tok_acc = n_matched / total_cmd_tokens
             cmd_acc = full_matches / num_cmds
-            rank_zero_info(f"\nSAMPLED CMD_TOKEN_ACC = {cmd_token_acc*100:02.2f} %  CMD_ACC = {cmd_acc*100:02.2f} %")
-            # (NOT YET SUPPORTED): pl_module.log("val_acc", n_matched / total_cmd_tokens, on_step=False, on_epoch=True, prog_bar=True)
+            rank_zero_info(f"\nSAMPLED CMD_TOKEN_ACC = {tok_acc*100:02.2f} %  CMD_ACC = {cmd_acc*100:02.2f} %")
             pl_module.logger.log_metrics({"cmd_acc": cmd_acc}, step=trainer.global_step)  #n_matched / total_cmd_tokens)
-            pl_module.logger.log_metrics({"tok_acc": cmd_token_acc}, step=trainer.global_step)  #n_matched / total_cmd_tokens)
+            pl_module.logger.log_metrics({"tok_acc": tok_acc}, step=trainer.global_step)  #n_matched / total_cmd_tokens)
             if self.out_dir:  #(not hasattr(trainer, "rank") or trainer.rank == 0):
                 with open(self.out_dir +
-                          f'cmd_acc_{trainer.current_epoch}-step{trainer.global_step:05d}_{cmd_token_acc:.4f}_{cmd_acc:.4f}.txt', 'w') as outfile:
-                    outfile.write(f"{cmd_token_acc}\t{n_matched}\t{total_cmd_tokens}\t{cmd_acc}\t{full_matches}\t{num_cmds}\t{trainer.current_epoch}\t{trainer.global_step}")
+                          f'cmd_acc_{trainer.current_epoch}-step{trainer.global_step:05d}_{tok_acc:.4f}_{cmd_acc:.4f}.txt', 'w') as outfile:
+                    outfile.write(f"{tok_acc}\t{n_matched}\t{total_cmd_tokens}\t{cmd_acc}\t{full_matches}\t{num_cmds}\t{trainer.current_epoch}\t{trainer.global_step}")
 
 
 

@@ -130,10 +130,10 @@ class PlaythroughDataset(Dataset):
             assert len(self._index) == nextpos+1
         return len(self._index)
 
-    def _add_to_tokspan_index(self, span):
+    def _add_to_tokspan_index(self, spanwlen):
         nextpos = len(self._tokspans)
-        if span not in self._tokspans:
-            self._tokspans[span] = nextpos
+        if spanwlen not in self._tokspans:
+            self._tokspans[spanwlen] = nextpos
             assert len(self._tokspans) == nextpos+1
         return len(self._tokspans)
 
@@ -167,18 +167,18 @@ class PlaythroughDataset(Dataset):
                             # print(f"Discarding span {subspan} from eval index")
                             # continue  # skip this one, it doesn't satisfy reqs
                             _start_idx = game_start_idx  # clip to start of game (block will be padded on retrieval)
-                        subspan = (_start_idx, span[1]-j, cmd_start_idx) # clipped span, len == block_size or less
+                        subspan = (_start_idx, span[1]-j, cmd_start_idx, cmd1_len-j) # clipped span, len == block_size or less
                         self._add_to_tokspan_index(subspan)  # this subspan gets included in the dataset
         else:  # index all within-game spans of len self.block_size
             if self.span_filtering:
                 assert False, f"Misconfiguration Error: unrecognized span_filtering option: {self.span_filtering}"
             for igame in range(self.num_games):
-                span, _, _ = self.get_token_spans(igame)  # all the tokens for this game
+                span, _, _, _ = self.get_token_spans(igame)  # all the tokens for this game
                 if _span_len(span) < self.block_size+1:
                     print(f"_index does not include game {igame} because it is too short {span}")
                     continue
                 for j in range(_span_len(span)-self.block_size):  # for each subspan of len blocksize
-                    subspan = (span[0]+j, span[0]+j+self.block_size+1, -1)
+                    subspan = (span[0]+j, span[0]+j+self.block_size+1, -1, -1)
                     self._add_to_tokspan_index(subspan)  # this subspan gets included in the dataset
         # optimization: create secondary index for access by position (idx) in linear time - python array: O(1)
         self._index_by_idx = [gamestep for gamestep in self._index if gamestep[1] > 0]
@@ -232,7 +232,7 @@ class PlaythroughDataset(Dataset):
 
             if self.span_filtering == PlaythroughDataset.TARGET_CMD_PROMPTS:
                 igame, istep, _nsteps_ = self.get_game_step(idx)
-                start_idx, output_len, cmd_start_idx = self.get_cmd_prompt_for_gamestep(igame, istep,
+                start_idx, output_len, cmd_start_idx, cmd_len = self.get_cmd_prompt_for_gamestep(igame, istep,
                                                                                         fetch_data=False,
                                                                                         block_size=-1,
                                                                                         continuation=self.prompt_extra_len)  # +random extra len from 0 to N
@@ -240,13 +240,13 @@ class PlaythroughDataset(Dataset):
                 #     return self.get_data_tensor(start_idx, output_len, cmd_start_idx, pad_left=False, fill_id=self.pad_tok)
 
             elif self.span_filtering == PlaythroughDataset.TARGET_CMD_TOKENS:
-                start_idx, end_idx, cmd_start_idx = self._index_tokspans_by_idx[idx]
+                start_idx, end_idx, cmd_start_idx, cmd_len = self._index_tokspans_by_idx[idx]
                 start_idx, output_len, cmd_start_idx = self._limit_to_block_size(start_idx, end_idx, cmd_start_idx)
                 if False:
                     return self.get_data_tensor(start_idx, output_len, cmd_start_idx, pad_left=True, fill_id=self.pad_tok)
             else:
                 assert False, f"UNSUPPORTED span_filtering={self.span_filtering} ({idx}:{self._index[idx]})"
-            return start_idx, output_len, cmd_start_idx
+            return start_idx, output_len, cmd_start_idx, cmd_len
 
         # """
         # arrange data and targets so that the first i elements of x
@@ -297,6 +297,9 @@ class PlaythroughDataset(Dataset):
         gamepthru_span, _, cmd1_span = self.get_token_spans(igame, 0, istep, inclusive=(True, True))
         cmd1_len = _span_len(cmd1_span)
         cmd_span = (gamepthru_span[1]-cmd1_len+1, gamepthru_span[1])
+        assert _span_len(cmd1_span) == _span_len(cmd_span), f"{cmd1_span} {cmd_span}"
+        assert cmd1_span[0] == cmd_span[0] and cmd1_span[1] == cmd_span[1], f"{cmd1_span} {cmd_span}"
+
         # np_icmd = np.where((self.cmd_spans == cmd_span).all(axis=1))[0]
         # if len(np_icmd):
         #     icmd = np_icmd[0]  # pull out the value
@@ -307,7 +310,7 @@ class PlaythroughDataset(Dataset):
             if block_size > self.block_size:
                 block_size = self.block_size
             # print(f"get_cmd_prompt_for_game={igame}_step={istep} AUTO block_size={block_size} ({_span_len(gamepthru_span)})")
-        start_idx, output_len, cmd_start_idx = self._prompt_for_cmd_span(cmd_span[0], cmd_span[1],
+        start_idx, output_len, cmd_start_idx, cmd_len = self._prompt_for_cmd_span(cmd_span[0], cmd_span[1],
                                                                          game_start_idx=gamepthru_span[0],
                                                                          continuation=continuation,
                                                                          fill_id=fill_id,
@@ -316,9 +319,9 @@ class PlaythroughDataset(Dataset):
             # print("fetch_data==True:", start_idx, output_len, cmd_start_idx)
             x, y, cmd_start_pos = self.get_data_tensor(start_idx, output_len, cmd_start_idx, pad_left=False,
                                                        fill_id=self.pad_tok)
-            return x, y, cmd_start_pos
+            return x, y, cmd_start_pos, cmd_len
         else:
-            return start_idx, output_len, cmd_start_idx
+            return start_idx, output_len, cmd_start_idx, cmd_len
 
     # def get_cmd_prompt(self, icmd:int, continuation=-1, fill_id=None):
     #     """ returns a span that ends with the ith cmd_start marker
@@ -385,7 +388,7 @@ class PlaythroughDataset(Dataset):
         assert cmd_start_pos == cmd_start_idx - start_idx
         assert x_len == output_len - (cmd_start_idx - start_idx)
         # end_idx = start_idx + output_len - 1
-        return start_idx, output_len, cmd_start_idx
+        return start_idx, output_len, cmd_start_idx, cmd_end_idx-cmd_start_idx
 
         # x_out[:output_len] = self.data[start_idx:start_idx+cmd_start_pos+x_len]
         # y_out[:output_len] = self.data[start_idx+1:start_idx+cmd_start_pos+x_len+1]
@@ -453,7 +456,7 @@ class PlaythroughDataset(Dataset):
         # print(len(batch[0]))  # 3 : each tuple = (start_idx, output_len, cmd_start_idx)
         if not align_cmds:
             max_output_len = 0
-            for _, output_len, _ in batch:
+            for _, output_len, _, _cmd_len_ in batch:
                 if output_len > max_output_len:
                     max_output_len = output_len
             # print(f"align_cmd=False max_output_len={max_output_len}")
@@ -477,8 +480,9 @@ class PlaythroughDataset(Dataset):
         xx = []
         yy = []
         cmd_start_pos = []
+        cmd_len = []
 
-        for i, (start_idx, output_len, cmd_start_idx) in enumerate(batch):
+        for i, (start_idx, output_len, cmd_start_idx, _cmd_len_) in enumerate(batch):
             # logger.info(f"[{i}] output_len={output_len} (start={start_idx} cmd_start={cmd_start_idx}")
             if not output_len > 0:
                 err_msg = f"[{i}] UNEXPECTED! output_len={output_len} (start={start_idx} cmd_start={cmd_start_idx}"
@@ -502,7 +506,7 @@ class PlaythroughDataset(Dataset):
                     x, y, cmd_pos = self._get_data_tensors(start_idx, output_len, max_output_len, cmd_start_idx,
                                                          pad_left=0, fill_id=self.pad_tok)
 
-            xx.append(x); yy.append(y); cmd_start_pos.append(cmd_pos)
+            xx.append(x); yy.append(y); cmd_start_pos.append(cmd_pos), cmd_len.append(_cmd_len_)
 
         #
         #
@@ -542,7 +546,7 @@ class PlaythroughDataset(Dataset):
                 err_msg = f"[{i}:{cmd_start_pos[i][0]}] {xx_pad[i, cmd_start_pos[i][0]].item()} {xx_pad[i,:]}"
                 print(err_msg)
                 assert xx_pad[i,cmd_start_pos[i][0]].item() == self.cmd_start, err_msg
-        return xx_pad, yy_pad, cmd_start_pos
+        return xx_pad, yy_pad, cmd_start_pos, cmd_len
 
 
 class PlaythroughDataModule(LightningDataModule):

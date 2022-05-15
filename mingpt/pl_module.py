@@ -98,8 +98,8 @@ class GPTLitModule(pl.LightningModule):
         return optimizer  #, lr_scheduler
 
     def training_step(self, batch, batch_idx):
-        if len(batch) == 3:
-            x, targets, _unused__cmd_pos = batch
+        if len(batch) == 4:
+            x, targets, _unused__cmd_pos, _unused__cmd_len = batch
         else:
             assert len(batch) == 2, "Expecting each training batch to be a tuple of x,y,(padding) "+int(len(batch))
             x, targets = batch
@@ -129,8 +129,8 @@ class GPTLitModule(pl.LightningModule):
 
     def validation_step(self, batch, batch_idx):
         batch_cmd_pos = None
-        if len(batch) == 3:
-            batch_x, batch_y, batch_cmd_pos = batch
+        if len(batch) == 4:
+            batch_x, batch_y, batch_cmd_pos, batch_cmd_len = batch
         else:
             assert len(batch) == 2, "Expecting each training batch to be a tuple of x,y,(padding) "+int(len(batch))
             batch_x, batch_y = batch
@@ -161,17 +161,21 @@ class GPTLitModule(pl.LightningModule):
             if self.hparams.data.eval_filtering == 'cmd_prompts':
                 assert batch_cmd_pos is not None
                 #print(f"logits.shape={logits.shape}")
-                for x, y, cmd_pos, pred in zip(batch_x, batch_y, batch_cmd_pos, logits):  # step through the batch
+                for x, y, cmd_pos, _cmd_len, pred in zip(batch_x, batch_y, batch_cmd_pos, batch_cmd_len, logits):  # step through the batch
                     #print(f"calc_cmd_acc: len(x,y)=({len(x),len(y)})\n   x={x}\n  y={y}" )
                     #print(f"pred.shape={pred.shape}")
 
                     n_toks, n_matched, predicted, y_trunc = \
-                        self.calc_cmd_acc(int(cmd_pos), x, y, seq_logits=pred)
+                        self.calc_cmd_acc(x, y, int(cmd_pos), cmd_len=_cmd_len, seq_logits=pred)
+                    assert n_toks == _cmd_len, f"{n_toks} == {_cmd_len}"
                     n_cmd_tokens += n_toks
                     n_matched_tokens += n_matched
                     n_cmds += 1
                     if n_matched == n_toks:
                         n_matched_cmds += 1
+                        if False and n_matched > 4:
+                            tail_len = min(n_toks + 2, len(x))
+                            print(f"EXACT (validation_step) [{n_cmds}] {n_matched_cmds}: {predicted} {x[-tail_len:] if tail_len > 0 else []}")
             else:  # 'cmd_tokens'
                 n_cmd_tokens += 1
                 # TODO: calculate n_matched_tokens for the batch
@@ -195,14 +199,16 @@ class GPTLitModule(pl.LightningModule):
         n_matched_tokens = sum([x['n_toks_matched'] for x in outs])
         n_matched_cmds = sum([x['cmd_exact_match'] for x in outs])
 
-        self.log('tok_acc', n_matched_tokens/n_cmd_tokens, on_epoch=True, prog_bar=True)
-        self.log('n_cmd_toks', n_cmd_tokens, on_epoch=True, prog_bar=False)
-        self.log('cmd_acc', n_matched_cmds/n_cmds if n_cmds else 0.0, on_epoch=True, prog_bar=True)
+        self.log('val_tok', n_matched_tokens/n_cmd_tokens, on_epoch=True, prog_bar=True)
+        self.log('val_acc', n_matched_cmds/n_cmds if n_cmds else 0.0, on_epoch=True, prog_bar=True)
+        # self.log('val_cmd_toks', n_cmd_tokens, on_epoch=True, prog_bar=True)
+        self.log('n_cmds', n_cmds, on_epoch=True, prog_bar=True)
+        self.log('n_exact', n_matched_cmds, on_epoch=True, prog_bar=True)
 
     def test_step(self, batch, batch_idx):
         metrics = self.validation_step(batch, batch_idx)
         metrics = {'test_loss': metrics['val_loss'],
-                   #'test_acc': metrics['val_acc'],
+                   'test_acc': metrics['val_acc'],
                    }
         self.log_dict(metrics)
 
@@ -220,20 +226,21 @@ class GPTLitModule(pl.LightningModule):
         self.cmd_start_marker = cmd_start_marker
         self.cmd_end_marker = cmd_end_marker
 
-    def calc_cmd_acc(self, cmd_start_pos:int, x, y, seq_logits=None):
+    def calc_cmd_acc(self, x, y, cmd_start_pos:int, cmd_len:int, seq_logits=None):
         assert self.cmd_start_marker is not None, "Setup ERROR: Need to call pl_module.set_cmd_markers()"
         assert self.cmd_end_marker is not None, "Setup ERROR: Need to call pl_module.set_cmd_markers()"
 
-        if self.hparams.data.eval_filtering == 'cmd_prompts':
-            i_end_of_cmd = len(x)   # - 1
-            for i in range(cmd_start_pos, len(y)):
-                # if x[i].item() == self.cmd_end_marker:
-                if y[i].item() == self.cmd_end_marker:
-                    i_end_of_cmd = i+1   # +1 is because y is left-shifted by 1 relative to x
-                    break
-            cmd_len = i_end_of_cmd - cmd_start_pos   # NOTE: includes cmd_end_marker, but not cmd_start_marker
-        else: # self.hparams.data.eval_filtering == 'cmd_tokens':
-            cmd_len = len(x) - cmd_start_pos - 1
+        # if cmd_len is None:
+        #     if self.hparams.data.eval_filtering == 'cmd_prompts':
+        #         i_end_of_cmd = len(x)   # - 1
+        #         for i in range(cmd_start_pos, len(y)):
+        #             # if x[i].item() == self.cmd_end_marker:
+        #             if y[i].item() == self.cmd_end_marker:
+        #                 i_end_of_cmd = i+1   # +1 is because y is left-shifted by 1 relative to x
+        #                 break
+        #         cmd_len = i_end_of_cmd - cmd_start_pos   # NOTE: includes cmd_end_marker, but not cmd_start_marker
+        #     else: # self.hparams.data.eval_filtering == 'cmd_tokens':
+        #         cmd_len = len(x) - cmd_start_pos - 1
 
         x = x.to(self.device)
         y = y.to(self.device)
@@ -250,7 +257,11 @@ class GPTLitModule(pl.LightningModule):
         # print(f"(cmd_pos={cmd_start_pos} cmd_len={cmd_len}) {y_trunc[max(0,cmd_start_pos-1):cmd_start_pos-1+cmd_len+1]} {y_trunc.shape}")
 
         if seq_logits is None:
+            # print(f"calc_acc - sample.ahead(n_samples={cmd_len}")
+            assert len(x_trunc) == cmd_start_pos+1, f"{len(x_trunc)} {cmd_start_pos} {x_trunc}"
+            assert x_trunc[-1] == self.cmd_start_marker, f"{cmd_start_pos}: {x_trunc[-1]} {x_trunc}"
             predict_out = self.sample_ahead(x_trunc, n_samples=cmd_len, temperature=1.0, randsampling=False, top_k=None)
+            # print(predict_out)
             if self.transpose_batches:
                 predict_out = predict_out.permute(*_swapped_first2(len(predict_out.shape))).contiguous()
         else:
@@ -262,6 +273,7 @@ class GPTLitModule(pl.LightningModule):
                 out.append(tokid_from_logits(logits).squeeze(0))
             # #print(out)
             predict_out = torch.stack(out)
+            # print(predict_out)
         assert len(predict_out) == len(y_trunc) - cmd_start_pos, f"{len(predict_out)} {len(y_trunc)} cmd_len={cmd_len} start_pos={cmd_start_pos}"
         assert len(predict_out) == cmd_len, f"{len(predict_out)} {len(y_trunc)} cmd_len={cmd_len} start_pos={cmd_start_pos}"
         # the following assertion is a sanity check to confirm that x_trunc and y_trunc are aligned correctly
@@ -314,7 +326,7 @@ class GPTLitModule(pl.LightningModule):
             # assert len(batch) == 6, f"{len(batch)} == 6"     # each component is a list
             batch_size = len(batch[0])    # NOTE: here we assume (b,t,...) ordering
             print(f"[batch_{ibatch}] batch len={batch_size}")
-            for (x, y, cmd_pos, ) in zip(*batch):   #, igame, istep, nsteps
+            for (x, y, cmd_pos, _cmd_len) in zip(*batch):   #, igame, istep, nsteps
                 igame, istep, nsteps = dataset.get_game_step(rec_idx)    #nsteps = dataset.get_num_steps(igame)
                 # print(f"\t[{rec_idx}] igame:{igame} istep:{istep} {nsteps}")
                 if max_eval_games and max_eval_games > 0 and igame > max_eval_games:
@@ -325,12 +337,15 @@ class GPTLitModule(pl.LightningModule):
 
                 total_cmds = rec_idx + 1
 
-                cmd_len, n_matched, predicted, y_trunc = self.calc_cmd_acc(int(cmd_pos), x, y, seq_logits=None)
+                cmd_len, n_matched, predicted, y_trunc = self.calc_cmd_acc(x, y, int(cmd_pos), cmd_len=_cmd_len, seq_logits=None)
+                assert cmd_len == _cmd_len, f"{cmd_len} == {_cmd_len}"
                 total_cmd_tokens += cmd_len
                 total_matched += n_matched
 
                 if n_matched == cmd_len:
                     full_matches += 1
+                    if False and n_matched > 4:
+                        print(f"EXACT (eval batched) #={full_matches}: {igame}.{istep} {predicted}")
                 if show_samples and self.is_rank_zero() and (n_matched != cmd_len or istep == 0):
                     n_printed += 1
                     _maybe_show_sample(igame, istep, predicted, y_trunc, n_matched, cmd_len, n_printed, dataset.num_games,
@@ -362,19 +377,23 @@ class GPTLitModule(pl.LightningModule):
                 # _span_debug, _, _ = dataset.get_token_idxs(igame, 0, istep)
                 # print(f"get_token_idxs(igame={igame}, 0, end_step={istep})  {_span_debug}")
                 # print(dataset.data[_span_debug[0]:_span_debug[1]+1])
-                x, y, cmd_start_pos = dataset.get_cmd_prompt_for_gamestep(igame, istep, continuation=-1, fetch_data=True)
+                x, y, cmd_start_pos, _cmd_len = dataset.get_cmd_prompt_for_gamestep(igame, istep, continuation=-1, fetch_data=True)
                 # if pl_module.transpose_batches:
                 #     x = x.T.contiguous()
                 #     y = y.T.contiguous()
                     #print("cmd_start_pos:", cmd_start_pos)
                 # print( x[cmd_start_pos].item() )
 
-                cmd_len, n_matched, predicted, y_trunc = self.calc_cmd_acc(int(cmd_start_pos), x, y, seq_logits=None)
+                cmd_len, n_matched, predicted, y_trunc = self.calc_cmd_acc(x, y, int(cmd_start_pos), cmd_len=_cmd_len, seq_logits=None)
+                assert cmd_len == _cmd_len, f"{cmd_len} == {_cmd_len}"
                 total_cmd_tokens += cmd_len
                 total_matched += n_matched
 
                 if n_matched == cmd_len:
                     full_matches += 1
+                    if False and n_matched > 4:
+                        tail_len = min(cmd_len+2, len(x))
+                        print(f"EXACT (eval predict) #={full_matches}: [{total_cmds}] {igame}.{istep} {predicted} {x[-tail_len:] if tail_len > 0 else []}")
                 if show_samples and self.is_rank_zero() and n_matched != cmd_len:
                     n_printed += 1
                     _maybe_show_sample(igame, istep, predicted, y_trunc, n_matched, cmd_len, n_printed, dataset.num_games,
@@ -406,7 +425,7 @@ def _maybe_show_sample(igame, istep, predicted, y_trunc, n_matched, cmd_len, n_p
 
 
 @torch.no_grad()
-def sampleT(model, block_size, x, steps, temperature=1.0, sample=False, top_k=None):
+def sampleT(model, block_size, x_in, steps, temperature=1.0, sample=False, top_k=None):
     """
     take a conditioning sequence of indices in x (of shape (b,t)) and predict the next token in
     the sequence, feeding the predictions back into the model each time. Clearly the sampling
@@ -416,6 +435,8 @@ def sampleT(model, block_size, x, steps, temperature=1.0, sample=False, top_k=No
     # block_size = model.get_block_size()
     # x.shape == (b,t_orig) [values are indices into vocab]
     model.eval()
+    x = x_in.clone().detach()
+
     for k in range(steps):
         x_cond = x if x.size(1) <= block_size else x[:, -block_size:] # crop context if needed
         x_cond = x_cond.permute(*_swapped_first2(len(x_cond.shape))).contiguous()  # shape (t,b) [values are indices into vocab]

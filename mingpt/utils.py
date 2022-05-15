@@ -23,7 +23,7 @@ def top_k_logits(logits, k):  # over last dimension of logits (by default)
     return out
 
 @torch.no_grad()
-def sample(model, block_size, x, steps, temperature=1.0, sample=False, top_k=None):
+def sample(model, block_size, x_in, steps, temperature=1.0, sample=False, top_k=None):
     """
     take a conditioning sequence of indices in x (of shape (b,t)) and predict the next token in
     the sequence, feeding the predictions back into the model each time. Clearly the sampling
@@ -32,6 +32,7 @@ def sample(model, block_size, x, steps, temperature=1.0, sample=False, top_k=Non
     """
     # block_size = model.get_block_size()
     model.eval()
+    x = x_in.clone().detach()
     for k in range(steps):
         x_cond = x if x.size(1) <= block_size else x[:, -block_size:] # crop context if needed
         logits = model(x_cond)

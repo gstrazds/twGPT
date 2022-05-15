@@ -69,7 +69,7 @@ trainer:
   warmup_tokens: 20480  #10240 = 512*20
   decay_multiplier: 8
   decay_tokens: null #{trainer.decay_multiplier}*{model.block_size}*${len(dataset)}  # set by caller after loading training data
-  show_samples: false
+  eval_predict: false
 
 eval:
   chkpt_dir: null
@@ -90,7 +90,7 @@ eval:
   root_dir: /ssd2tb/${eval.which_games}  # /ssd2tb/ftwc
   pthru_data_dir: ${.root_dir}/playthru_data/${.which_games}_${.which_set}  #mingpt-${eval.which_set}
   games_dir: ${.root_dir}/games_${.which_games}/${.which_set}/
-  show_samples: ${trainer.show_samples}
+  show_samples: ${trainer.eval_predict}
 
 wandb:
   proj: tw-${use_framework}-${model.arch}
