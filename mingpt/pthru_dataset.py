@@ -313,41 +313,17 @@ class PlaythroughDataset(Dataset):
             if block_size > self.block_size:
                 block_size = self.block_size
             # print(f"get_cmd_prompt_for_game={igame}_step={istep} AUTO block_size={block_size} ({_span_len(gamepthru_span)})")
-        start_idx, output_len, cmd_start_idx, _cmd_len_ = self._prompt_for_cmd_span(cmd_span[0], cmd_span[1],
-                                                                         game_start_idx=gamepthru_span[0],
-                                                                         continuation=continuation,
-                                                                         fill_id=fill_id,
-                                                                         block_size=block_size)
-        # print(f"{_span_len(cmd_span)} {_cmd_len_}")
-        assert _span_len(cmd_span) == cmd1_len
-        assert _cmd_len_ == cmd1_len-1
-        if fetch_data:
-            # print("fetch_data==True:", start_idx, output_len, cmd_start_idx)
-            x, y, cmd_start_pos = self._get_data_tensors(start_idx, output_len, self.block_size, cmd_start_idx,
-                                                         pad_left=0, fill_id=fill_id)
-            return x, y, cmd_start_pos, cmd1_len-1
-        else:
-            return start_idx, output_len, cmd_start_idx, cmd1_len-1
 
-    # def get_cmd_prompt(self, icmd:int, continuation=-1, fill_id=None):
-    #     """ returns a span that ends with the ith cmd_start marker
-    #     (of length block_size, or less if the cmd marker position is less than block_size).
-    #     if continuation > 0, span length is extended, and x_out is padded with fill_id
-    #     if continuation < 0, continuation is auto-adjusted to a length up to and including corresponding cmd_end_marker
-    #     """
-    #     if self.cmd_spans is None or icmd >= len(self.cmd_spans):
-    #         return None, None
-    #     cmd_start_idx, cmd_end_idx = self.cmd_spans[icmd]  # span includes the start,end markers
-    #     if fill_id is None:
-    #         fill_id = self.pad_tok
-    #     return self._prompt_for_cmd_span(cmd_start_idx, cmd_end_idx, continuation=continuation, fill_id=fill_id)
-
-    def _prompt_for_cmd_span(self, cmd_start_idx, cmd_end_idx, game_start_idx=0,
-                             continuation=-1, fill_id=None, block_size=None, align_cmds=False):
-        if fill_id is None:
-            fill_id = self.pad_tok
+        ####### 05-16 INLINED _prompt_for_cmd_span(), which was only used in this one place
         if block_size is None or block_size <= 0:
             block_size = self.block_size
+        cmd_start_idx, cmd_end_idx = cmd_span  # cmd_span[0], cmd_span[1]
+        game_start_idx = gamepthru_span[0]
+        # start_idx, output_len, cmd_start_idx, _cmd_len_ = self._prompt_for_cmd_span(cmd_span[0], cmd_span[1],
+        #                                                                  game_start_idx=gamepthru_span[0],
+        #                                                                  continuation=continuation,
+        #                                                                  fill_id=fill_id,
+        #                                                                  block_size=block_size)
         if continuation == -1:  # -1 by default
             continuation = cmd_end_idx - cmd_start_idx  # cmd_len
         elif continuation < -1:
@@ -393,13 +369,86 @@ class PlaythroughDataset(Dataset):
         assert output_len == cmd_start_pos+x_len
         assert cmd_start_pos == cmd_start_idx - start_idx
         assert x_len == output_len - (cmd_start_idx - start_idx)
-        # end_idx = start_idx + output_len - 1
-        return start_idx, output_len, cmd_start_idx, cmd_end_idx-cmd_start_idx
+        # return start_idx, output_len, cmd_start_idx, cmd_end_idx-cmd_start_idx
+        _cmd_len_ = cmd_end_idx - cmd_start_idx
 
-        # x_out[:output_len] = self.data[start_idx:start_idx+cmd_start_pos+x_len]
-        # y_out[:output_len] = self.data[start_idx+1:start_idx+cmd_start_pos+x_len+1]
-        # # print(x_out)
-        # return torch.tensor(x_out, dtype=torch.long), torch.tensor(y_out, dtype=torch.long), torch.tensor([cmd_start_pos])
+        # print(f"{_span_len(cmd_span)} {_cmd_len_}")
+        assert _span_len(cmd_span) == cmd1_len
+        assert _cmd_len_ == cmd1_len-1
+        if fetch_data:
+            # print("fetch_data==True:", start_idx, output_len, cmd_start_idx)
+            x, y, cmd_start_pos = self._get_data_tensors(start_idx, output_len, self.block_size, cmd_start_idx,
+                                                         pad_left=0, fill_id=fill_id)
+            return x, y, cmd_start_pos, cmd1_len-1
+        else:
+            return start_idx, output_len, cmd_start_idx, cmd1_len-1
+
+    # def get_cmd_prompt(self, icmd:int, continuation=-1, fill_id=None):
+    #     """ returns a span that ends with the ith cmd_start marker
+    #     (of length block_size, or less if the cmd marker position is less than block_size).
+    #     if continuation > 0, span length is extended, and x_out is padded with fill_id
+    #     if continuation < 0, continuation is auto-adjusted to a length up to and including corresponding cmd_end_marker
+    #     """
+    #     if self.cmd_spans is None or icmd >= len(self.cmd_spans):
+    #         return None, None
+    #     cmd_start_idx, cmd_end_idx = self.cmd_spans[icmd]  # span includes the start,end markers
+    #     if fill_id is None:
+    #         fill_id = self.pad_tok
+    #     return self._prompt_for_cmd_span(cmd_start_idx, cmd_end_idx, continuation=continuation, fill_id=fill_id)
+
+    # def _prompt_for_cmd_span(self, cmd_start_idx, cmd_end_idx, game_start_idx=0,
+    #                          continuation=-1, fill_id=None, block_size=None, align_cmds=False):
+    #     if fill_id is None:
+    #         fill_id = self.pad_tok
+    #     if block_size is None or block_size <= 0:
+    #         block_size = self.block_size
+    #     if continuation == -1:  # -1 by default
+    #         continuation = cmd_end_idx - cmd_start_idx  # cmd_len
+    #     elif continuation < -1:
+    #         continuation = cmd_end_idx - cmd_start_idx + random.randint(0, -continuation)  # cmd_len + some extra randomization
+    #
+    #     cmd_start_pos = block_size-1   # where in the output buffer the start marker will be
+    #     prompt_len = block_size
+    #     start_idx = cmd_start_idx - block_size + 1
+    #     if start_idx < game_start_idx:
+    #         prompt_len -= (game_start_idx - start_idx)
+    #         cmd_start_pos -= (game_start_idx - start_idx)
+    #         start_idx = game_start_idx
+    #
+    #     output_len = prompt_len + continuation
+    #     x_len = output_len - cmd_start_pos   # NOTE: can be negative e.g. if output_len is shorter than block_size
+    #
+    #     if start_idx + x_len >= len(self.data):  # NOTE: numpy automatically truncates slices at max pos
+    #         x_len = len(self.data) - start_idx
+    #
+    #     # right-padding to block_size if batch_size > 1
+    #     if self.span_filtering == PlaythroughDataset.TARGET_CMD_PROMPTS and (self.batch_size is not None and self.batch_size > 1):
+    #         # x_out = np.full(self.block_size, fill_value=fill_id)
+    #         # y_out = np.full(self.block_size, fill_value=fill_id)
+    #         if output_len > self.block_size:
+    #             # adjust so that we output exactly block_size
+    #             diff_len = output_len - self.block_size
+    #             output_len -= diff_len  # = self.block_size
+    #             cmd_start_pos -= diff_len
+    #             start_idx += diff_len
+    #         elif output_len <= self.block_size:
+    #             # if align_cmds:  # ragged lengths are Ok, pad_collate() will add right padding if needed
+    #             #     diff_len = 0
+    #             # else:  # this is how it used to be -- pad on the right if needed
+    #             #     diff_len = self.block_size - output_len
+    #             #     output_len = self.block_size
+    #             #     x_len += diff_len
+    #             diff_len = 0
+    #     else:
+    #         # x_out = np.full(output_len, fill_value=fill_id)
+    #         # y_out = np.full(output_len, fill_value=fill_id)
+    #         pass
+    #     # print(f"({cmd_start_idx,cmd_end_idx}) output_len={output_len} start_idx={start_idx} cmd_start_pos={cmd_start_pos} x_len={x_len}")
+    #     assert output_len == cmd_start_pos+x_len
+    #     assert cmd_start_pos == cmd_start_idx - start_idx
+    #     assert x_len == output_len - (cmd_start_idx - start_idx)
+    #     # end_idx = start_idx + output_len - 1
+    #     return start_idx, output_len, cmd_start_idx, cmd_end_idx-cmd_start_idx
 
     def _limit_to_block_size(self, start_idx, end_idx, cmd_start_idx):
         if end_idx >= len(self.data):
