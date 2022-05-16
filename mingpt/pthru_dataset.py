@@ -243,7 +243,7 @@ class PlaythroughDataset(Dataset):
                 start_idx, end_idx, cmd_start_idx, cmd_len = self._index_tokspans_by_idx[idx]
                 start_idx, output_len, cmd_start_idx = self._limit_to_block_size(start_idx, end_idx, cmd_start_idx)
                 if False:
-                    return self.get_data_tensor(start_idx, output_len, cmd_start_idx, pad_left=True, fill_id=self.pad_tok)
+                    return (*self.get_data(start_idx, output_len, cmd_start_idx, pad_left=True, fill_id=self.pad_tok), cmd_len)
             else:
                 assert False, f"UNSUPPORTED span_filtering={self.span_filtering} ({idx}:{self._index[idx]})"
             return start_idx, output_len, cmd_start_idx, cmd_len
@@ -317,7 +317,7 @@ class PlaythroughDataset(Dataset):
                                                                          block_size=block_size)
         if fetch_data:
             # print("fetch_data==True:", start_idx, output_len, cmd_start_idx)
-            x, y, cmd_start_pos = self.get_data_tensor(start_idx, output_len, cmd_start_idx, pad_left=False,
+            x, y, cmd_start_pos = self.get_data(start_idx, output_len, cmd_start_idx, pad_left=False,
                                                        fill_id=self.pad_tok)
             return x, y, cmd_start_pos, cmd_len
         else:
@@ -416,7 +416,7 @@ class PlaythroughDataset(Dataset):
         return (start_idx, output_len, cmd_start_idx)
         # return self.get_data_tensor(start_idx, output_len, cmd_start_idx, pad_left)
 
-    def get_data_tensor(self, start_idx, output_len, cmd_start_idx, pad_left=False, fill_id=None):
+    def get_data(self, start_idx, output_len, cmd_start_idx, pad_left=False, fill_id=None):
         if fill_id is None:
             fill_id = self.pad_tok
         pad_left_len = self.block_size - output_len if pad_left else 0
@@ -449,7 +449,7 @@ class PlaythroughDataset(Dataset):
         if pad_left:
             cmd_start_pos += pad_left
         # print(x_out)
-        return torch.tensor(x_out, dtype=torch.long), torch.tensor(y_out, dtype=torch.long), torch.tensor([cmd_start_pos])
+        return torch.tensor(x_out, dtype=torch.long), torch.tensor(y_out, dtype=torch.long), cmd_start_pos
 
     def pad_collate(self, batch, align_cmds=False):
         # print(f"cmd_start:{self.cmd_start} cnd_end:{self.cmd_end} {len(batch)}", type(batch), type(batch[0]))  # a list of tuples, len=batch_size
@@ -542,10 +542,10 @@ class PlaythroughDataset(Dataset):
         yy_pad = pad_sequence(yy, batch_first=True, padding_value=self.pad_tok)
         for i in range(len(cmd_start_pos)):
             assert len(xx_pad[i]) == len(yy_pad[i]), f"[{i}] {xx_pad[i]} {yy_pad[i]}"
-            if xx_pad[i,cmd_start_pos[i][0]].item() != self.cmd_start:
-                err_msg = f"[{i}:{cmd_start_pos[i][0]}] {xx_pad[i, cmd_start_pos[i][0]].item()} {xx_pad[i,:]}"
+            if xx_pad[i,cmd_start_pos[i]] != self.cmd_start:
+                err_msg = f"[{i}:{cmd_start_pos[i]}] {xx_pad[i, cmd_start_pos[i]]} {xx_pad[i,:]}"
                 print(err_msg)
-                assert xx_pad[i,cmd_start_pos[i][0]].item() == self.cmd_start, err_msg
+                assert xx_pad[i,cmd_start_pos[i]] == self.cmd_start, err_msg
         return xx_pad, yy_pad, cmd_start_pos, cmd_len
 
 
