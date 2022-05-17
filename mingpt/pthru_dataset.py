@@ -237,7 +237,7 @@ class PlaythroughDataset(Dataset):
                 igame, istep, _nsteps_ = self.get_game_step(idx)
                 start_idx, output_len, cmd_start_idx, cmd_len = self.get_cmd_prompt_for_gamestep(igame, istep,
                                                                                         fetch_data=False,
-                                                                                        block_size=-1,
+                                                                                        block_size=(-1 if self.prompt_extra_len else 0),
                                                                                         continuation=self.prompt_extra_len)  # +random extra len from 0 to N
                 # if False:
                 #     return (*self.fetch_data(start_idx, output_len, cmd_start_idx, cmd_len, pad_left=False, fill_id=self.pad_tok), cmd_len)
@@ -289,12 +289,14 @@ class PlaythroughDataset(Dataset):
         y = torch.tensor(chunk[1:], dtype=torch.long)
         return x, y
 
-    def get_cmd_prompt_for_gamestep(self, igame:int, istep:int, continuation=-1, fill_id=None, block_size=None, fetch_data=True):
+    def get_cmd_prompt_for_gamestep(self, igame:int, istep:int, continuation=-1, fill_id=None, fetch_data=True,
+                                    block_size: int = -1  # default: self.block_size ;
+                                    # if block_size==0: return continuation as y instead of merging it into x
+                                    ):
         if self.cmd_spans is None or not self.game_spans:
             assert self.cmd_spans
             assert self.game_spans
             return None, None
-        icmd = 0
         if fill_id is None:
             fill_id = self.pad_tok
         gamepthru_span, _, cmd1_span = self.get_token_spans(igame, 0, istep, inclusive=(True, True))
@@ -303,20 +305,20 @@ class PlaythroughDataset(Dataset):
         assert _span_len(cmd1_span) == _span_len(cmd_span), f"{cmd1_span} {cmd_span}"
         assert cmd1_span[0] == cmd_span[0] and cmd1_span[1] == cmd_span[1], f"{cmd1_span} {cmd_span}"
 
-        # np_icmd = np.where((self.cmd_spans == cmd_span).all(axis=1))[0]
-        # if len(np_icmd):
-        #     icmd = np_icmd[0]  # pull out the value
-        # else:
-        #     print(f"Failed to find {cmd_span} in self.cmd_spans")
+        merge_x_with_continuation = True
         if block_size == -1:
             block_size = _span_len(gamepthru_span)  # - cmd1_len - 1 # full length of playthrough up to istep cmd
             if block_size > self.block_size:
                 block_size = self.block_size
             # print(f"get_cmd_prompt_for_game={igame}_step={istep} AUTO block_size={block_size} ({_span_len(gamepthru_span)})")
+        elif block_size < 0:
+            block_size = self.block_size
+        else:  # block_size == 0
+            block_size = self.block_size
+            merge_x_with_continuation = False
+            # print("block_size 0 -- not merging continuation into x")
 
         ####### 05-16 INLINED _prompt_for_cmd_span(), which was only used in this one place
-        if block_size is None or block_size <= 0:
-            block_size = self.block_size
         cmd_start_idx, cmd_end_idx = cmd_span  # cmd_span[0], cmd_span[1]
         game_start_idx = gamepthru_span[0]
         # start_idx, output_len, cmd_start_idx, _cmd_len_ = self._prompt_for_cmd_span(cmd_span[0], cmd_span[1],
@@ -337,7 +339,9 @@ class PlaythroughDataset(Dataset):
             cmd_start_pos -= (game_start_idx - start_idx)
             start_idx = game_start_idx
 
-        output_len = prompt_len + continuation
+        output_len = prompt_len
+        if merge_x_with_continuation:
+            output_len += continuation
         x_len = output_len - cmd_start_pos   # NOTE: can be negative e.g. if output_len is shorter than block_size
 
         if start_idx + x_len >= len(self.data):  # NOTE: numpy automatically truncates slices at max pos
@@ -396,60 +400,6 @@ class PlaythroughDataset(Dataset):
     #         fill_id = self.pad_tok
     #     return self._prompt_for_cmd_span(cmd_start_idx, cmd_end_idx, continuation=continuation, fill_id=fill_id)
 
-    # def _prompt_for_cmd_span(self, cmd_start_idx, cmd_end_idx, game_start_idx=0,
-    #                          continuation=-1, fill_id=None, block_size=None, align_cmds=False):
-    #     if fill_id is None:
-    #         fill_id = self.pad_tok
-    #     if block_size is None or block_size <= 0:
-    #         block_size = self.block_size
-    #     if continuation == -1:  # -1 by default
-    #         continuation = cmd_end_idx - cmd_start_idx  # cmd_len
-    #     elif continuation < -1:
-    #         continuation = cmd_end_idx - cmd_start_idx + random.randint(0, -continuation)  # cmd_len + some extra randomization
-    #
-    #     cmd_start_pos = block_size-1   # where in the output buffer the start marker will be
-    #     prompt_len = block_size
-    #     start_idx = cmd_start_idx - block_size + 1
-    #     if start_idx < game_start_idx:
-    #         prompt_len -= (game_start_idx - start_idx)
-    #         cmd_start_pos -= (game_start_idx - start_idx)
-    #         start_idx = game_start_idx
-    #
-    #     output_len = prompt_len + continuation
-    #     x_len = output_len - cmd_start_pos   # NOTE: can be negative e.g. if output_len is shorter than block_size
-    #
-    #     if start_idx + x_len >= len(self.data):  # NOTE: numpy automatically truncates slices at max pos
-    #         x_len = len(self.data) - start_idx
-    #
-    #     # right-padding to block_size if batch_size > 1
-    #     if self.span_filtering == PlaythroughDataset.TARGET_CMD_PROMPTS and (self.batch_size is not None and self.batch_size > 1):
-    #         # x_out = np.full(self.block_size, fill_value=fill_id)
-    #         # y_out = np.full(self.block_size, fill_value=fill_id)
-    #         if output_len > self.block_size:
-    #             # adjust so that we output exactly block_size
-    #             diff_len = output_len - self.block_size
-    #             output_len -= diff_len  # = self.block_size
-    #             cmd_start_pos -= diff_len
-    #             start_idx += diff_len
-    #         elif output_len <= self.block_size:
-    #             # if align_cmds:  # ragged lengths are Ok, pad_collate() will add right padding if needed
-    #             #     diff_len = 0
-    #             # else:  # this is how it used to be -- pad on the right if needed
-    #             #     diff_len = self.block_size - output_len
-    #             #     output_len = self.block_size
-    #             #     x_len += diff_len
-    #             diff_len = 0
-    #     else:
-    #         # x_out = np.full(output_len, fill_value=fill_id)
-    #         # y_out = np.full(output_len, fill_value=fill_id)
-    #         pass
-    #     # print(f"({cmd_start_idx,cmd_end_idx}) output_len={output_len} start_idx={start_idx} cmd_start_pos={cmd_start_pos} x_len={x_len}")
-    #     assert output_len == cmd_start_pos+x_len
-    #     assert cmd_start_pos == cmd_start_idx - start_idx
-    #     assert x_len == output_len - (cmd_start_idx - start_idx)
-    #     # end_idx = start_idx + output_len - 1
-    #     return start_idx, output_len, cmd_start_idx, cmd_end_idx-cmd_start_idx
-
     def _limit_to_block_size(self, start_idx, end_idx, cmd_start_idx):
         if end_idx >= len(self.data):
             # assert False, "THIS SHOULD NOT HAPPEN!"
@@ -470,12 +420,6 @@ class PlaythroughDataset(Dataset):
 
         return (start_idx, output_len, cmd_start_idx)
         # return self.get_data_tensor(start_idx, output_len, cmd_start_idx, pad_left)
-
-    # def fetch_data(self, start_idx, output_len, cmd_start_idx, cmd_len, pad_left=False, fill_id=None):
-    #     if fill_id is None:
-    #         fill_id = self.pad_tok
-    #     pad_left_len = self.block_size - output_len if pad_left else 0
-    #     return self._get_data_tensors(start_idx, output_len, self.block_size, cmd_start_idx, pad_left_len, fill_id=fill_id)
 
     def _get_data_tensors(self, start_idx, output_len, buffer_size, cmd_start_idx, pad_left=0, fill_id=0):
         if pad_left > 0:    # output_len < self.block_size:
@@ -547,52 +491,50 @@ class PlaythroughDataset(Dataset):
         for start_idx, output_len, cmd_start_idx, _cmd_len in batch:
             # print(start_idx, cmd_start_idx-start_idx, output_len )
             cmd_pos = cmd_start_idx - start_idx
-            tail_len = output_len - cmd_pos
+            tail_len = _cmd_len
             assert 0 <= cmd_pos < output_len, f"{cmd_start_idx} {start_idx} {output_len}"
             assert output_len <= self.block_size, f"{output_len} {self.block_size}"
             if tail_len > max_tail:
                 max_tail = tail_len
-            # if cmd_pos > align_pos:  # move align_pos to the right as far as possible
-            #     align_pos = min(cmd_pos, self.block_size - max_tail)
-            align_pos = min(max(cmd_pos, align_pos), self.block_size - max_tail)
-            max_output_len = max(align_pos + tail_len, max_output_len)
-            assert max_output_len <= self.block_size, f"{max_output_len} {self.block_size}"
         # print(f"max_tail={max_tail} max_output_len={max_output_len} align_pos={align_pos}")
 
         xx = []
         yy = []
         cmd_start_pos = []
         cmd_len = []
-
+        buffer_size = self.block_size
         for i, (start_idx, output_len, cmd_start_idx, _cmd_len_) in enumerate(batch):
+            cmd_pos = cmd_start_idx - start_idx
+            cmd_start_idx += 1   # point to the first token after the special [cmd_start] token
             # logger.info(f"[{i}] output_len={output_len} (start={start_idx} cmd_start={cmd_start_idx}")
             if not output_len > 0:
                 err_msg = f"[{i}] UNEXPECTED! output_len={output_len} (start={start_idx} cmd_start={cmd_start_idx}"
                 logger.error(err_msg)
                 assert False, err_msg
-
-            cmd_pos = cmd_start_idx - start_idx
-            tail_len = output_len - cmd_pos
-            assert align_pos + tail_len <= max_output_len, f"{align_pos} +{tail_len} <= {max_output_len} ({max_tail})"
-            delta_shift = align_pos - cmd_pos
-            if delta_shift > 0:  # need to pad on the left
-                x, y, cmd_pos = self._get_data_tensors(start_idx, output_len, max_output_len, cmd_start_idx,
-                                                       pad_left=delta_shift, fill_id=self.pad_tok)
+            assert start_idx + output_len == cmd_start_idx, f"{start_idx}+{output_len} == {cmd_start_idx}"
+            if output_len < buffer_size:  # pad_left
+                # logger.info(f"_get_data_tensors(pad_right) {start_idx} {output_len} {buffer_size} {self.data.shape}")
+                if output_len <= 0:
+                    assert False, f"{output_len}"
+                if start_idx >= len(self.data):
+                    assert False, f"{self.data.shape}"
+                pad_left = buffer_size - output_len
+                x_out = np.full(buffer_size, fill_value=self.pad_tok)
+                x_out[pad_left:pad_left + output_len] = self.data[start_idx:start_idx + output_len]
+                cmd_pos += pad_left
             else:
-                if delta_shift < 0:  # need to truncate on the left
-                    start_idx -= delta_shift  # NOTE: delta_shift is negative: start_idx gets INCREMENTED
-                    output_len += delta_shift  # NOTE: delta_shift is negative: output_len gets DECREMENTED
-                x, y, cmd_pos = self._get_data_tensors(start_idx, output_len, max_output_len, cmd_start_idx,
-                                                       pad_left=0, fill_id=self.pad_tok)
+                x_out = self.data[start_idx:start_idx + output_len]
+            y_out = self.data[cmd_start_idx:cmd_start_idx + _cmd_len_]
 
-            xx.append(x);
-            yy.append(y);
-            cmd_start_pos.append(cmd_pos), cmd_len.append(_cmd_len_)
+            assert len(y_out) == _cmd_len_
+            xx.append(torch.tensor(x_out, dtype=torch.long))
+            yy.append(torch.tensor(y_out, dtype=torch.long))
+            cmd_start_pos.append(cmd_pos)
+            cmd_len.append(_cmd_len_)
 
         xx_pad = pad_sequence(xx, batch_first=True, padding_value=self.pad_tok)
         yy_pad = pad_sequence(yy, batch_first=True, padding_value=self.pad_tok)
         for i in range(len(cmd_start_pos)):
-            assert len(xx_pad[i]) == len(yy_pad[i]), f"[{i}] {xx_pad[i]} {yy_pad[i]}"
             if xx_pad[i, cmd_start_pos[i]] != self.cmd_start:
                 err_msg = f"[{i}:{cmd_start_pos[i]}] {xx_pad[i, cmd_start_pos[i]]} {xx_pad[i, :]}"
                 print(err_msg)
@@ -650,6 +592,7 @@ class PlaythroughDataset(Dataset):
 
         xx_pad = pad_sequence(xx, batch_first=True, padding_value=self.pad_tok)
         yy_pad = pad_sequence(yy, batch_first=True, padding_value=self.pad_tok)
+        assert yy_pad.shape[1] == max_tail, f"{yy_pad.shape} {_max_tail}"
         for i in range(len(cmd_start_pos)):
             assert len(xx_pad[i]) == len(yy_pad[i]), f"[{i}] {xx_pad[i]} {yy_pad[i]}"
             if xx_pad[i, cmd_start_pos[i]] != self.cmd_start:
@@ -750,7 +693,7 @@ class PlaythroughDataModule(LightningDataModule):
                                                          pad_tok=self.pad_tok,
                                                          span_filtering=PlaythroughDataset.TARGET_CMD_PROMPTS,
                                                          batch_size=batch_size,
-                                                         prompt_extra_len=-1)  # include the cmd after the prompt
+                                                         prompt_extra_len=0)  # DO NOT include the cmd after the prompt
                                         #    span_filtering = PlaythroughDataset.TARGET_CMD_PROMPTS)  # eval accuracy
 
     def train_dataloader(self):

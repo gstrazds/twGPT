@@ -122,7 +122,7 @@ class GPTLitModule(pl.LightningModule):
         # at this point, batch x block_len dimensions have been collapsed into one big sequence:
         # ::::  logits.view: size(txb, vocab_size)  targets.view: size(txb)
         # multi-class cross entropy: # classes = vocab_size. Each token in (bxt) is scored independently
-        loss = F.cross_entropy(logits_view, targets_view, ignore_index=PADDING_INDEX)  #-100)
+        loss = F.cross_entropy(logits_view, targets_view, ignore_index=PADDING_INDEX)
 
         self.log('train_loss', loss, on_step=True, on_epoch=True, prog_bar=True)
         return {"loss": loss}
@@ -135,63 +135,124 @@ class GPTLitModule(pl.LightningModule):
             assert len(batch) == 2, "Expecting each training batch to be a tuple of x,y,(padding) "+int(len(batch))
             batch_x, batch_y = batch
 
-        if self.transpose_batches:
+        # initially batch-first ordering: (b, t, ...)
+        if batch_x.shape != batch_y.shape:
+            block_size = batch_x.shape[1]
+            new_x = torch.zeros_like(batch_x).to(batch_x.device)
+            new_y = torch.zeros_like(batch_x).to(batch_y.device)
+            new_pos = []
+            assert batch_x.shape[0] == batch_y.shape[0],  f"{batch_x.shape} {batch_y.shape}"  # batch size
+            assert batch_y.shape[1] < batch_x.shape[1], f"{batch_x.shape} {batch_y.shape}"
+            for i in range(batch_x.shape[0]):
+                # if i < 10 or i % 50 == 0:   # debugging, take a look at every Nth record
+                #     if hasattr(self, "_debug_tokenizer"):
+                #     detok = self._debug_tokenizer
+                #     print(f"[{i}], cmd_len={batch_cmd_len[i]}, "
+                #          f"{detok.decode(batch_x[i][-20:].detach().cpu().tolist(), skip_special_tokens=False)} |"
+                #          f"{detok.decode(batch_y[i].detach().cpu().tolist(), skip_special_tokens=False)}")
+                #  else:
+                #      print(f"[{i}], cmd_len={batch_cmd_len[i]}, "
+                #            f"{batch_x[i][-20:]}"
+                #            f"{batch_y[i]}")
+                cmd_len = batch_cmd_len[i]
+                prefix_len = block_size-cmd_len
+                # print(f"new_x:{new_x.shape} new_y:{new_y.shape} {cmd_len} {prefix_len}")
+                new_x[i, 0:prefix_len+1] = batch_x[i, cmd_len-1:]
+                if cmd_len > 1:
+                    new_x[i, prefix_len+1:] = batch_y[i, 0:cmd_len-1]
+                new_y[i, 0:prefix_len] = batch_x[i, cmd_len:]
+                new_y[i, prefix_len:] = batch_y[i, 0:cmd_len]
+                new_pos.append(batch_cmd_pos[i] - (cmd_len-1))
+            batch_x = new_x
+            y_original = batch_y   # keep a reference (for debugging)
+            batch_y = new_y
+            batch_cmd_pos = new_pos
+
+        if self.transpose_batches:  # our model expects time-step first ordering: (t, b, ...)
             batch_x = batch_x.permute(*_swapped_first2(len(batch_x.shape))).contiguous()
             batch_y = batch_y.permute(*_swapped_first2(len(batch_y.shape))).contiguous()
-            # batch_cmd_pos = batch_cmd_pos.T.contiguous()
 
         #logits, loss = self.model(batch_x, batch_y)
         logits = self.model(batch_x)
-        # loss = F.cross_entropy(logits, batch_y)
-        loss = F.cross_entropy(logits.view(-1, logits.size(-1)), batch_y.view(-1), ignore_index=PADDING_INDEX)
+        if True:
+            # loss = F.cross_entropy(logits, batch_y)
+            loss = F.cross_entropy(logits.view(-1, logits.size(-1)), batch_y.view(-1), ignore_index=PADDING_INDEX)
 
-        self.log('val_loss', loss, on_step=True, on_epoch=False, prog_bar=True)
-        metrics = {'val_loss': loss} #, 'val_acc': acc}
-
+            self.log('val_loss', loss, on_step=True, on_epoch=False, prog_bar=True)
+            metrics = {'val_loss': loss}  # , 'val_acc': acc}
+        else:
+            # loss = torch.zeros_like(logits.view(-1))  # not correct, doesn't work
+            metrics = {}
         n_cmd_tokens = 0
         n_matched_tokens = 0
         n_cmds = 0
         n_matched_cmds = 0
-        if self.transpose_batches:   # TODO: fix when transpose_batches == True
+        if self.transpose_batches:   # TODO: fix to avoid double transpose when transpose_batches == True
             batch_x = batch_x.permute(*_swapped_first2(len(batch_x.shape))).contiguous()  # swap 1st 2 dims back to original order (batch_len, block_len)
             batch_y = batch_y.permute(*_swapped_first2(len(batch_y.shape))).contiguous()
             logits = logits.permute(*_swapped_first2(len(logits.shape))).contiguous()
-        if True:
-            # print(f"({self.hparams.data.eval_filtering})  batch_y.shape =", batch_y.shape, "logits.shape =", logits.shape)
-            if self.hparams.data.eval_filtering == 'cmd_prompts':
-                assert batch_cmd_pos is not None
-                #print(f"logits.shape={logits.shape}")
-                for x, y, cmd_pos, _cmd_len, pred in zip(batch_x, batch_y, batch_cmd_pos, batch_cmd_len, logits):  # step through the batch
-                    #print(f"calc_cmd_acc: len(x,y)=({len(x),len(y)})\n   x={x}\n  y={y}" )
-                    #print(f"pred.shape={pred.shape}")
 
-                    n_toks, n_matched, predicted, y_trunc = \
-                        self.calc_cmd_acc(x, y, int(cmd_pos), cmd_len=_cmd_len, seq_logits=pred)
-                    assert n_toks == _cmd_len, f"{n_toks} == {_cmd_len}"
-                    n_cmd_tokens += n_toks
-                    n_matched_tokens += n_matched
-                    n_cmds += 1
-                    if n_matched == n_toks:
-                        n_matched_cmds += 1
-                        if False and n_matched > 4:
-                            tail_len = min(n_toks + 2, len(x))
-                            print(f"EXACT (validation_step) [{n_cmds}] {n_matched_cmds}: {predicted} {x[-tail_len:] if tail_len > 0 else []}")
-            else:  # 'cmd_tokens'
-                n_cmd_tokens += 1
-                # TODO: calculate n_matched_tokens for the batch
+        # print(f"({self.hparams.data.eval_filtering})  batch_y.shape =", batch_y.shape, "logits.shape =", logits.shape)
+        if self.hparams.data.eval_filtering == 'cmd_prompts' and self.hparams.trainer.eval_predict:
+            assert batch_cmd_pos is not None
+            #print(f"logits.shape={logits.shape}")
+            batch_out = []
+            i = -1
+            for x, y, cmd_pos, _cmd_len, pred in zip(batch_x, batch_y, batch_cmd_pos, batch_cmd_len, logits):  # step through the batch
+                #print(f"calc_cmd_acc: len(x,y)=({len(x),len(y)})\n   x={x}\n  y={y}" )
+                #print(f"pred.shape={pred.shape}")
+                i += 1
+                n_toks, n_matched, predicted, y_trunc = \
+                    self.calc_cmd_acc(x, y, int(cmd_pos), cmd_len=_cmd_len, seq_logits=pred)
+                batch_out.append(predicted)
+                # n_toks2, n_matched2, predicted2, y_trunc2 = \
+                #     self.calc_cmd_acc(x, y, int(cmd_pos), cmd_len=_cmd_len, seq_logits=None)
+                # if n_matched2 != n_matched:
+                if False:
+                    # print(f"TF:{n_matched}!={n_matched2}")
+                    if hasattr(self, "_debug_tokenizer"):
+                        detok = self._debug_tokenizer
+                        print(f"[{i}], cmd_len={batch_cmd_len[i]} ",
+                             #f"{detok.decode(x[-20:].detach().cpu().tolist(), skip_special_tokens=False)}\n  "
+                             f"{detok.decode(predicted[-10:].detach().cpu().tolist(), skip_special_tokens=False)}\n  "
+                             # f"{detok.decode(predicted2[-10:].detach().cpu().tolist(), skip_special_tokens=False)}"
+                              )
 
-            # self.log('n_cmd_toks', n_cmd_tokens, on_step=True, on_epoch=True, prog_bar=False)
-            metrics['n_cmd_toks'] = n_cmd_tokens
-            # self.log('n_toks_matched', n_matched_tokens, on_step=True, on_epoch=True, prog_bar=False)
-            metrics['n_toks_matched'] = n_matched_tokens
-            # self.log('n_cmds', n_cmds, on_step=True, on_epoch=True, prog_bar=True)
-            metrics['n_cmds'] = n_cmds
-            # self.log('cmd_exact_match', n_matched_cmds, on_step=True, on_epoch=True, prog_bar=True)
-            metrics['cmd_exact_match'] = n_matched_cmds
+                assert n_toks == _cmd_len, f"{n_toks} == {_cmd_len}"
+                n_cmd_tokens += n_toks
+                n_matched_tokens += n_matched
+                n_cmds += 1
+                if n_matched == n_toks:
+                    n_matched_cmds += 1
+                    if False and n_matched > 4:
+                        tail_len = min(n_toks + 2, len(x))
+                        print(f"EXACT (validation_step) [{n_cmds}] {n_matched_cmds}: {predicted} {x[-tail_len:] if tail_len > 0 else []}")
+            batch_out = torch.nn.utils.rnn.pad_sequence(batch_out, batch_first=True, padding_value=0).to(batch_x.device)
+            # print("batch_out (PADDED):", batch_out)
+            toks_matched, exact_matches = mask_and_count(batch_cmd_len, batch_out, y_original)
+            assert toks_matched == n_matched_tokens, f"{toks_matched}=={n_matched_tokens}"
+            assert exact_matches == n_matched_cmds, f"{exact_matches}=={n_matched_cmds}"
+        else:  # 'cmd_tokens'
+            n_cmd_tokens += 1
+            # TODO: calculate n_matched_tokens for the batch
+
+        # self.log('n_cmd_toks', n_cmd_tokens, on_step=True, on_epoch=True, prog_bar=False)
+        metrics['n_cmd_toks'] = n_cmd_tokens
+        # self.log('n_toks_matched', n_matched_tokens, on_step=True, on_epoch=True, prog_bar=False)
+        metrics['n_toks_matched'] = n_matched_tokens
+        # self.log('n_cmds', n_cmds, on_step=True, on_epoch=True, prog_bar=True)
+        metrics['n_cmds'] = n_cmds
+        # self.log('cmd_exact_match', n_matched_cmds, on_step=True, on_epoch=True, prog_bar=True)
+        metrics['cmd_exact_match'] = n_matched_cmds
         return metrics
 
     def validation_epoch_end(self, outs):
-        avg_loss = torch.stack([x["val_loss"] for x in outs]).mean()
+        # print("validation_epoch_end LENGTH outs=", len(outs))
+        # print("outs [cmd_exact_match]=", [x['cmd_exact_match'] for x in outs])
+        if 'val_loss' in outs[0]:
+            avg_loss = torch.stack([x["val_loss"] for x in outs]).mean()
+        else:
+            avg_loss = torch.tensor([0.0])
         self.log("val_loss", avg_loss, on_epoch=True, prog_bar=True)
 
         n_cmd_tokens = sum([x['n_cmd_toks'] for x in outs])
@@ -199,7 +260,7 @@ class GPTLitModule(pl.LightningModule):
         n_matched_tokens = sum([x['n_toks_matched'] for x in outs])
         n_matched_cmds = sum([x['cmd_exact_match'] for x in outs])
 
-        self.log('val_tok', n_matched_tokens/n_cmd_tokens, on_epoch=True, prog_bar=True)
+        self.log('val_tok', n_matched_tokens/n_cmd_tokens if n_cmd_tokens else 0.0, on_epoch=True, prog_bar=True)
         self.log('val_acc', n_matched_cmds/n_cmds if n_cmds else 0.0, on_epoch=True, prog_bar=True)
         # self.log('val_cmd_toks', n_cmd_tokens, on_epoch=True, prog_bar=True)
         self.log('n_cmds', n_cmds, on_epoch=True, prog_bar=True)
@@ -377,7 +438,8 @@ class GPTLitModule(pl.LightningModule):
                 # _span_debug, _, _ = dataset.get_token_idxs(igame, 0, istep)
                 # print(f"get_token_idxs(igame={igame}, 0, end_step={istep})  {_span_debug}")
                 # print(dataset.data[_span_debug[0]:_span_debug[1]+1])
-                x, y, cmd_start_pos, _cmd_len = dataset.get_cmd_prompt_for_gamestep(igame, istep, continuation=-1, fetch_data=True)
+                x, y, cmd_start_pos, _cmd_len = \
+                    dataset.get_cmd_prompt_for_gamestep(igame, istep, continuation=-1, block_size=-1, fetch_data=True)
                 # if pl_module.transpose_batches:
                 #     x = x.T.contiguous()
                 #     y = y.T.contiguous()
@@ -422,6 +484,31 @@ def _maybe_show_sample(igame, istep, predicted, y_trunc, n_matched, cmd_len, n_p
             # print(f"{len(y_predicted)} {list(y_predicted[-5 - n_sampled:])}")
             print()
 
+
+def mask_and_count(batch_cmd_len, batch_out, batch_y):
+    assert batch_y.shape[1] >= max(batch_cmd_len), f"{batch_y.shape} {max(batch_cmd_len)} {batch_cmd_len}"
+    mask = torch.zeros(batch_out.shape, dtype=torch.bool).to(batch_out.device)
+    for i in range(len(batch_cmd_len)):
+        # mask[i, 0:batch_cmd_len[i]] = 1
+        mask[i, batch_cmd_len[i]:] = True     # token positions to mask out (ignore)
+    # print(mask[:,0:7])
+    # masked_out = batch_out * mask.int()
+    masked_out = batch_out.masked_fill(mask, -1)   # -1 is a value that will not match any predicted token, nor <PAD>
+    # print(masked_out.shape)
+    # print(masked_out)
+    matched_toks = torch.eq(masked_out, batch_y)
+    # print("batch_y", batch_y.shape, "\n", batch_y[0:10,:])
+    # print("matched_toks", matched_toks.shape, "\n", matched_toks[0:10,:].int())
+    toks_matched = torch.count_nonzero(matched_toks)
+    matched_per_cmd = torch.count_nonzero(matched_toks, dim=1)
+    # print(len(matched_per_cmd), "matched per cmd:", matched_per_cmd)
+    exact_matches = 0
+    for i, cmd_len in enumerate(batch_cmd_len):
+        if matched_per_cmd[i].item() == cmd_len:
+            # print("MATCH:", matched_toks[i,:],"\n\t", batch_out[i,:], batch_y[i,:] )
+            exact_matches += 1
+    print("tokens matched:", toks_matched, "  exact_matches:", exact_matches)
+    return toks_matched, exact_matches
 
 
 @torch.no_grad()

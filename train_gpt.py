@@ -102,13 +102,19 @@ def train_gpt(cfg: DictConfig) -> None:
         # early_stopping = EarlyStopping('val_acc', mode='max', patience=5)
         callback_list.append(early_stopping)
 
-    if hasattr(cfg.trainer, 'eval_predict') and cfg.trainer.eval_predict and cfg.train_ftwc:
-        assert _datamodule.validation_dataset.span_filtering == PlaythroughDataset.TARGET_CMD_PROMPTS, \
-            f"trainer.show_samples requires data.eval_filtering='cmd_prompts' INCOMPATIBLE:{_datamodule.validation_dataset.span_filtering}"
-        val_dataloader = _datamodule.val_dataloader()
-        show_samples_callback = SamplePredictions(_datamodule.tokenizer, _datamodule.validation_dataset, out_dir="./", how_many=5,
-                                                  dataloader=val_dataloader)
-        callback_list.append(show_samples_callback)
+    if cfg.train_ftwc:
+
+        pl_model._debug_tokenizer = _datamodule.tokenizer
+        # DEBUG HACK
+        # if hasattr(cfg.trainer, 'eval_predict') and cfg.trainer.eval_predict:
+
+        if cfg.eval.show_samples:
+            assert _datamodule.validation_dataset.span_filtering == PlaythroughDataset.TARGET_CMD_PROMPTS, \
+                f"trainer.show_samples requires data.eval_filtering='cmd_prompts' INCOMPATIBLE:{_datamodule.validation_dataset.span_filtering}"
+            val_dataloader = _datamodule.val_dataloader()
+            show_samples_callback = SamplePredictions(_datamodule.tokenizer, _datamodule.validation_dataset, out_dir="./", how_many=5,
+                                                      dataloader=val_dataloader)
+            callback_list.append(show_samples_callback)
 
     callback_list.append(CUDACallback())
 
@@ -158,7 +164,7 @@ class SamplePredictions(Callback):
 
     def on_validation_end(self, trainer, pl_module):
         if pl_module.is_rank_zero():
-            if hasattr(pl_module.hparams.eval, "show_samples"):
+            if False and hasattr(pl_module.hparams.eval, "show_samples"):
                 show_samples = pl_module.hparams.eval.show_samples
             else:
                 show_samples = True
