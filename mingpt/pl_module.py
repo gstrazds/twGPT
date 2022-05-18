@@ -137,32 +137,7 @@ class GPTLitModule(pl.LightningModule):
 
         # initially batch-first ordering: (b, t, ...)
         if batch_x.shape != batch_y.shape:
-            block_size = batch_x.shape[1]
-            new_x = torch.zeros_like(batch_x).to(batch_x.device)
-            new_y = torch.zeros_like(batch_x).to(batch_y.device)
-            new_pos = []
-            assert batch_x.shape[0] == batch_y.shape[0],  f"{batch_x.shape} {batch_y.shape}"  # batch size
-            assert batch_y.shape[1] < batch_x.shape[1], f"{batch_x.shape} {batch_y.shape}"
-            for i in range(batch_x.shape[0]):
-                # if i < 10 or i % 50 == 0:   # debugging, take a look at every Nth record
-                #     if hasattr(self, "_debug_tokenizer"):
-                #     detok = self._debug_tokenizer
-                #     print(f"[{i}], cmd_len={batch_cmd_len[i]}, "
-                #          f"{detok.decode(batch_x[i][-20:].detach().cpu().tolist(), skip_special_tokens=False)} |"
-                #          f"{detok.decode(batch_y[i].detach().cpu().tolist(), skip_special_tokens=False)}")
-                #  else:
-                #      print(f"[{i}], cmd_len={batch_cmd_len[i]}, "
-                #            f"{batch_x[i][-20:]}"
-                #            f"{batch_y[i]}")
-                cmd_len = batch_cmd_len[i]
-                prefix_len = block_size-cmd_len
-                # print(f"new_x:{new_x.shape} new_y:{new_y.shape} {cmd_len} {prefix_len}")
-                new_x[i, 0:prefix_len+1] = batch_x[i, cmd_len-1:]
-                if cmd_len > 1:
-                    new_x[i, prefix_len+1:] = batch_y[i, 0:cmd_len-1]
-                new_y[i, 0:prefix_len] = batch_x[i, cmd_len:]
-                new_y[i, prefix_len:] = batch_y[i, 0:cmd_len]
-                new_pos.append(batch_cmd_pos[i] - (cmd_len-1))
+            new_x, new_y, new_pos = convert_validation_batch(batch_x, batch_y, batch_cmd_pos, batch_cmd_len, max_block_size=self.model.block_size)
             batch_x = new_x
             y_original = batch_y   # keep a reference (for debugging)
             batch_y = new_y
@@ -386,33 +361,87 @@ class GPTLitModule(pl.LightningModule):
         for ibatch, batch in enumerate(dataloader):
             # assert len(batch) == 6, f"{len(batch)} == 6"     # each component is a list
             batch_size = len(batch[0])    # NOTE: here we assume (b,t,...) ordering
-            print(f"[batch_{ibatch}] batch len={batch_size}")
-            for (x, y, cmd_pos, _cmd_len) in zip(*batch):   #, igame, istep, nsteps
-                igame, istep, nsteps = dataset.get_game_step(rec_idx)    #nsteps = dataset.get_num_steps(igame)
-                # print(f"\t[{rec_idx}] igame:{igame} istep:{istep} {nsteps}")
-                if max_eval_games and max_eval_games > 0 and igame > max_eval_games:
-                    continue  # skip eval
+            # print(f"[batch_{ibatch}] batch len={batch_size}")
 
-                if show_samples and (igame % 10 == 0) and (istep == 1):
-                    rank_zero_info(f"+{igame} [:{nsteps}] --------------------------")
+            do_serial_processing = False
+            if do_serial_processing:   # for 'backward compatible' comparison
+                batch_x, batch_y, batched_cmd_pos, batched_cmd_len = batch
+                new_x, new_y, new_pos = convert_validation_batch(batch_x, batch_y, batched_cmd_pos, batched_cmd_len)
+                # NOTE: results in shorter prompt/prefixes in x, and thus might detract from prediction accuracy
+                batch_x = new_x
+                batch_y = new_y
+                batched_cmd_pos = new_pos
 
-                total_cmds = rec_idx + 1
+                for (x, y, cmd_pos, _cmd_len) in zip(batch_x, batch_y, batched_cmd_pos, batched_cmd_len):   #, igame, istep, nsteps
+                    igame, istep, nsteps = dataset.get_game_step(rec_idx)    #nsteps = dataset.get_num_steps(igame)
+                    # print(f"\t[{rec_idx}] igame:{igame} istep:{istep} {nsteps}")
+                    if max_eval_games and max_eval_games > 0 and igame > max_eval_games:
+                        continue  # skip eval
 
-                cmd_len, n_matched, predicted, y_trunc = self.calc_cmd_acc(x, y, int(cmd_pos), cmd_len=_cmd_len, seq_logits=None)
-                assert cmd_len == _cmd_len, f"{cmd_len} == {_cmd_len}"
-                total_cmd_tokens += cmd_len
-                total_matched += n_matched
+                    if show_samples and (igame % 10 == 0) and (istep == 1):
+                        rank_zero_info(f"+{igame} [:{nsteps}] --------------------------")
 
-                if n_matched == cmd_len:
-                    full_matches += 1
-                    if False and n_matched > 4:
-                        print(f"EXACT (eval batched) #={full_matches}: {igame}.{istep} {predicted}")
-                if show_samples and self.is_rank_zero() and (n_matched != cmd_len or istep == 0):
-                    n_printed += 1
-                    _maybe_show_sample(igame, istep, predicted, y_trunc, n_matched, cmd_len, n_printed, dataset.num_games,
-                                       tokenizer=tokenizer)
-                rec_idx += 1
-            # total_cmds = rec_idx  #(each record targets one cmd)
+                    total_cmds = rec_idx + 1
+
+                    # GVS DEBUGGING: try truncating the batch input, to see if it matches old method when batch_size=1
+                    x_len = cmd_pos + _cmd_len
+                    block_size = self.hparams.model.block_size
+                    if cmd_pos+_cmd_len+1 > block_size:
+                        chop_left = cmd_pos+_cmd_len+1 - block_size
+                        # print("chop_left=", chop_left)
+                        cmd_len, n_matched, predicted, y_trunc = self.calc_cmd_acc(x[chop_left:chop_left+x_len],
+                                                                                   y[chop_left:chop_left+x_len],
+                                                                                   int(cmd_pos)-chop_left, cmd_len=_cmd_len, seq_logits=None)
+                    else:
+                        cmd_len, n_matched, predicted, y_trunc = self.calc_cmd_acc(x[0:x_len], y[0:x_len], int(cmd_pos), cmd_len=_cmd_len, seq_logits=None)
+                    assert cmd_len == _cmd_len, f"{cmd_len} == {_cmd_len}"
+                    total_cmd_tokens += cmd_len
+                    total_matched += n_matched
+
+                    if n_matched == cmd_len:
+                        full_matches += 1
+                        if False and n_matched > 4:
+                            print(f"EXACT (eval batched) #={full_matches}: {igame}.{istep} {predicted}")
+                    if show_samples and self.is_rank_zero() and (n_matched != cmd_len or istep == 0):
+                        n_printed += 1
+                        _maybe_show_sample(igame, istep, predicted, y_trunc, n_matched, cmd_len, n_printed, dataset.num_games,
+                                           tokenizer=tokenizer)
+                    # print(f"toks_matched={n_matched} n_toks={cmd_len} cmds_matched={1 if n_matched==cmd_len else 0} n_cmds={1}")
+                    rec_idx += 1
+                # total_cmds = rec_idx  #(each record targets one cmd)
+            else:  # process the batch in parallel
+                batch_x, batch_y, batched_cmd_pos, batched_cmd_len = batch
+                batch_x = batch_x.to(self.device)
+                batch_y = batch_y.to(self.device)
+                block_size = self.hparams.model.block_size
+                n_steps = max(batched_cmd_len)
+                n_cmds = len(batched_cmd_len)   # one cmd per record
+                max_cmd_len = max(batched_cmd_len)
+                n_cmd_tokens = sum(batched_cmd_len)
+
+                if True: # sanity check: we expect each record to end with cmd_start special token
+                    cmd_pos = batched_cmd_pos[0]
+                    for i, _cmd_pos in enumerate(batched_cmd_pos):
+                        assert _cmd_pos == cmd_pos, f"{_cmd_pos}=={cmd_pos}"
+                if self.transpose_batches:
+                    preds = sampleT(self.model, block_size, batch_x, steps=n_steps)
+                                    # temperature=1.0, sample=False, top_k=None   #DEFAULTS: temp=1.0, greedy top_1
+                else:
+                    max_seq_len = batch_x.shape[1]
+                    # GVS DEBUGGING: try truncating the batch input, to see if it matches old method when batch_size=1
+                    if max_seq_len+max_cmd_len > block_size:
+                        chop_left = max_seq_len+max_cmd_len - block_size
+                        preds = sample(self.model, block_size, batch_x[:,chop_left:], steps=n_steps)
+                    else:
+                        preds = sample(self.model, block_size, batch_x, steps=n_steps)
+                                        # temperature=1.0, sample=False, top_k=None   #DEFAULTS: temp=1.0, greedy top_1
+                batch_output = preds[:, -batch_y.shape[1]:]  # remove the prompt/prefix from the returned predictions
+                toks_matched, cmds_matched = mask_and_count(batched_cmd_len, batch_output, batch_y)
+                # print(f"toks_matched={toks_matched} n_toks={n_cmd_tokens} cmds_matched={cmds_matched} n_cmds={n_cmds}")
+                total_cmd_tokens += n_cmd_tokens
+                total_matched += toks_matched
+                total_cmds += n_cmds
+                full_matches += cmds_matched
         return total_matched, total_cmd_tokens, full_matches, total_cmds
 
     def eval_predict_cmd_tokens(self, dataset, tokenizer=None, show_samples=False):
@@ -460,6 +489,7 @@ class GPTLitModule(pl.LightningModule):
                     n_printed += 1
                     _maybe_show_sample(igame, istep, predicted, y_trunc, n_matched, cmd_len, n_printed, dataset.num_games,
                                        tokenizer=tokenizer)
+                print(f"toks_matched={n_matched} n_toks={cmd_len} cmds_matched={1 if n_matched==cmd_len else 0} n_cmds={1}")
 
         return total_matched, total_cmd_tokens, full_matches, total_cmds
 
@@ -485,20 +515,62 @@ def _maybe_show_sample(igame, istep, predicted, y_trunc, n_matched, cmd_len, n_p
             print()
 
 
-def mask_and_count(batch_cmd_len, batch_out, batch_y):
-    assert batch_y.shape[1] >= max(batch_cmd_len), f"{batch_y.shape} {max(batch_cmd_len)} {batch_cmd_len}"
+def convert_validation_batch(batch_x, batch_y, batch_cmd_pos, batch_cmd_len, max_block_size=None):
+    """ converts a validation batch (batch_x has only the prompt, batch_y has just the expected ground truth output)
+        to be consistent with training batches (both x & y include the expected cmd, with y=x shifted by one pos)"""
+    max_cmd_len = max(batch_cmd_len)
+    block_size = batch_x.shape[1]+max_cmd_len
+    if max_block_size and max_block_size < block_size:
+        block_size=max_block_size
+    new_x = torch.zeros((batch_x.shape[0], block_size), dtype=batch_x.dtype).to(batch_x.device)
+    new_y = torch.zeros((batch_y.shape[0], block_size), dtype=batch_y.dtype).to(batch_y.device)
+    new_pos = []
+    assert batch_x.shape[0] == batch_y.shape[0], f"{batch_x.shape} {batch_y.shape}"  # batch size
+    assert batch_y.shape[1] < batch_x.shape[1], f"{batch_x.shape} {batch_y.shape}"
+    for i in range(batch_x.shape[0]):
+        # if i < 10 or i % 50 == 0:   # debugging, take a look at every Nth record
+        #     if hasattr(self, "_debug_tokenizer"):
+        #     detok = self._debug_tokenizer
+        #     print(f"[{i}], cmd_len={batch_cmd_len[i]}, "
+        #          f"{detok.decode(batch_x[i][-20:].detach().cpu().tolist(), skip_special_tokens=False)} |"
+        #          f"{detok.decode(batch_y[i].detach().cpu().tolist(), skip_special_tokens=False)}")
+        #  else:
+        #      print(f"[{i}], cmd_len={batch_cmd_len[i]}, "
+        #            f"{batch_x[i][-20:]}"
+        #            f"{batch_y[i]}")
+
+        cmd_len = batch_cmd_len[i]
+        if max_block_size:
+            prefix_len = block_size - cmd_len
+            new_x[i, 0:prefix_len + 1] = batch_x[i, cmd_len - 1:]
+            new_y[i, 0:prefix_len] = batch_x[i, cmd_len:]
+            _cmd_pos = batch_cmd_pos[i] - (cmd_len - 1)
+        else:
+            prefix_len = batch_cmd_pos[i]
+            new_x[i, 0:prefix_len + 1] = batch_x[i, 0:prefix_len + 1]
+            new_y[i, 0:prefix_len] = batch_x[i, 1:prefix_len+1]
+            _cmd_pos = batch_cmd_pos[i] # - (cmd_len - 1)
+        # print(f"new_x:{new_x.shape} new_y:{new_y.shape} {cmd_len} {prefix_len}")
+        if cmd_len > 1:
+            new_x[i, prefix_len+1:prefix_len+cmd_len] = batch_y[i, 0:cmd_len - 1]
+        new_y[i, prefix_len:prefix_len+cmd_len] = batch_y[i, 0:cmd_len]
+        new_pos.append(_cmd_pos)
+    return new_x, new_y, new_pos
+
+def mask_and_count(batch_cmd_len, batch_out, batch_truth):    # compare batch_out to batch_truth
+    assert batch_truth.shape[1] >= max(batch_cmd_len), f"{batch_truth.shape} {max(batch_cmd_len)} {batch_cmd_len}"
+    assert batch_truth.shape == batch_out.shape, f"{batch_truth.shape} {batch_out.shape}"
     mask = torch.zeros(batch_out.shape, dtype=torch.bool).to(batch_out.device)
     for i in range(len(batch_cmd_len)):
         # mask[i, 0:batch_cmd_len[i]] = 1
         mask[i, batch_cmd_len[i]:] = True     # token positions to mask out (ignore)
-    # print(mask[:,0:7])
-    # masked_out = batch_out * mask.int()
+    ## print(mask[:,0:7])
+    ## masked_out = batch_out * mask.int()
     masked_out = batch_out.masked_fill(mask, -1)   # -1 is a value that will not match any predicted token, nor <PAD>
     # print(masked_out.shape)
     # print(masked_out)
-    matched_toks = torch.eq(masked_out, batch_y)
-    # print("batch_y", batch_y.shape, "\n", batch_y[0:10,:])
-    # print("matched_toks", matched_toks.shape, "\n", matched_toks[0:10,:].int())
+    matched_toks = torch.eq(masked_out, batch_truth)
+    ## print("matched_toks", matched_toks.shape, "\n", [b for b in matched_toks[0:8,:].int()])
     toks_matched = torch.count_nonzero(matched_toks)
     matched_per_cmd = torch.count_nonzero(matched_toks, dim=1)
     # print(len(matched_per_cmd), "matched per cmd:", matched_per_cmd)
@@ -507,7 +579,7 @@ def mask_and_count(batch_cmd_len, batch_out, batch_y):
         if matched_per_cmd[i].item() == cmd_len:
             # print("MATCH:", matched_toks[i,:],"\n\t", batch_out[i,:], batch_y[i,:] )
             exact_matches += 1
-    print("tokens matched:", toks_matched, "  exact_matches:", exact_matches)
+    # print("tokens matched:", toks_matched, "  exact_matches:", exact_matches)
     return toks_matched, exact_matches
 
 

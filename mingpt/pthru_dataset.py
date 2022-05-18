@@ -222,12 +222,18 @@ class PlaythroughDataset(Dataset):
             end_idx = end_cmd_span[1]
         return (start_idx, end_idx), start_cmd_span, end_cmd_span
 
+    def _remap_idx(self, idx):
+        # return len(self._index_by_idx)-idx-1   # for debugging
+        return idx
+
     def get_game_step(self, idx):   # from *unshuffled* dataset idx get (igame, istep)  [only for validation & test]
+        idx = self._remap_idx(idx)
         igame, istep = self._index_by_idx[idx]
         nsteps = self.get_num_steps(igame)
         return igame, istep, nsteps
 
     def __getitem__(self, idx):
+        idx = self._remap_idx(idx)
         # grab a chunk of (block_size + 1) characters from the data
         if self._index:
             assert self._index_by_idx  # consistency check
@@ -347,8 +353,8 @@ class PlaythroughDataset(Dataset):
         if start_idx + x_len >= len(self.data):  # NOTE: numpy automatically truncates slices at max pos
             x_len = len(self.data) - start_idx
 
-        # right-padding to block_size if batch_size > 1
-        if self.span_filtering == PlaythroughDataset.TARGET_CMD_PROMPTS and (self.batch_size is not None and self.batch_size > 1):
+        # adjust to block_size if output len is greater than block_size
+        if self.span_filtering == PlaythroughDataset.TARGET_CMD_PROMPTS:  # and (self.batch_size is not None and self.batch_size > 1):
             # x_out = np.full(self.block_size, fill_value=fill_id)
             # y_out = np.full(self.block_size, fill_value=fill_id)
             if output_len > self.block_size:
@@ -496,13 +502,15 @@ class PlaythroughDataset(Dataset):
             assert output_len <= self.block_size, f"{output_len} {self.block_size}"
             if tail_len > max_tail:
                 max_tail = tail_len
+            if output_len > max_output_len:
+                max_output_len = output_len
         # print(f"max_tail={max_tail} max_output_len={max_output_len} align_pos={align_pos}")
 
         xx = []
         yy = []
         cmd_start_pos = []
         cmd_len = []
-        buffer_size = self.block_size
+        buffer_size = max_output_len   #self.block_size
         for i, (start_idx, output_len, cmd_start_idx, _cmd_len_) in enumerate(batch):
             cmd_pos = cmd_start_idx - start_idx
             cmd_start_idx += 1   # point to the first token after the special [cmd_start] token

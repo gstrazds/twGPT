@@ -336,10 +336,13 @@ def main(cfg: DictConfig) -> None:
         trainer_global_step = 0
         eval_start_time = datetime.datetime.now()
 
-        tokens_matched, total_cmd_tokens, full_matches, num_cmds = pl_model.eval_predict_cmds_batched(dataset, dataloader,
-            tokenizer=_datamodule.tokenizer, show_samples=cfg.eval.show_samples)
-        # tokens_matched, total_cmd_tokens, full_matches, num_cmds = pl_model.eval_predict_cmd_tokens(dataset,
-        #     tokenizer=_datamodule.tokenizer, show_samples=cfg.eval.show_samples)
+        use_old_version = False
+        if use_old_version:
+            tokens_matched, total_cmd_tokens, full_matches, num_cmds = pl_model.eval_predict_cmd_tokens(dataset,
+                tokenizer=_datamodule.tokenizer, show_samples=cfg.eval.show_samples)
+        else:
+            tokens_matched, total_cmd_tokens, full_matches, num_cmds = pl_model.eval_predict_cmds_batched(dataset, dataloader,
+                tokenizer=_datamodule.tokenizer, show_samples=cfg.eval.show_samples)
 
         eval_done_time = datetime.datetime.now()
         rank_zero_info(f"----------- eval : {eval_done_time} -- elapsed: {eval_done_time - eval_start_time}")

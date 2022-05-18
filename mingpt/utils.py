@@ -35,13 +35,16 @@ def sample(model, block_size, x_in, steps, temperature=1.0, sample=False, top_k=
     x = x_in.clone().detach()
     for k in range(steps):
         x_cond = x if x.size(1) <= block_size else x[:, -block_size:] # crop context if needed
+        # print(f"[{k}] x.shape={x.shape} steps={steps})")
+        # print(f"[{k}] sample(block_size={block_size}, x.shape={x_cond.shape} steps={steps})", x_cond[:, -5:])
         logits = model(x_cond)
         logits = logits[:, -1, :]  # use the logits from the last seq pos
         ix = tokid_from_logits(logits, temperature=temperature, sample=sample, top_k=top_k)
         # append to the sequence and continue
         x = torch.cat((x, ix), dim=1)
-
-    return x
+    x_out = x if x.size(1) <= block_size else x[:, -block_size:]  # crop context if needed
+    # print(x_out.shape, x_out)
+    return x_out   # SEEMS TO MAKE NO DIFFERENCE: x.out.clone().detach()
 
 @torch.no_grad()
 def tokid_from_logits(logits, temperature=1.0, sample=False, top_k=None):

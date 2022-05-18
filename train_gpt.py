@@ -168,12 +168,12 @@ class SamplePredictions(Callback):
                 show_samples = pl_module.hparams.eval.show_samples
             else:
                 show_samples = True
-            n_matched, total_cmd_tokens, full_matches, num_cmds = \
+            if True:
+                n_matched, total_cmd_tokens, full_matches, num_cmds = \
                     pl_module.eval_predict_cmd_tokens(self.dataset, tokenizer=self.tokenizer, show_samples=show_samples)
-                    # pl_module.eval_predict_cmds_batched(self.dataset, self.dataloader,
-                    #                                      tokenizer=self.tokenizer,
-                    #                                      show_samples=show_samples)
-                    # pl_module.eval_predict_cmd_tokens(self.dataset, tokenizer=self.tokenizer, show_samples=show_samples)
+            else:
+                n_matched, total_cmd_tokens, full_matches, num_cmds = \
+                    pl_module.eval_predict_cmds_batched(self.dataset, self.dataloader, tokenizer=self.tokenizer, show_samples=show_samples)
             tok_acc = n_matched / total_cmd_tokens
             cmd_acc = full_matches / num_cmds
             rank_zero_info(f"\nSAMPLED CMD_TOKEN_ACC = {tok_acc*100:02.2f} %  CMD_ACC = {cmd_acc*100:02.2f} %")
