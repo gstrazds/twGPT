@@ -489,7 +489,7 @@ class GPTLitModule(pl.LightningModule):
                     n_printed += 1
                     _maybe_show_sample(igame, istep, predicted, y_trunc, n_matched, cmd_len, n_printed, dataset.num_games,
                                        tokenizer=tokenizer)
-                print(f"toks_matched={n_matched} n_toks={cmd_len} cmds_matched={1 if n_matched==cmd_len else 0} n_cmds={1}")
+                # print(f"toks_matched={n_matched} n_toks={cmd_len} cmds_matched={1 if n_matched==cmd_len else 0} n_cmds={1}")
 
         return total_matched, total_cmd_tokens, full_matches, total_cmds
 
