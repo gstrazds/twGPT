@@ -33,7 +33,10 @@ class GPTLitModule(pl.LightningModule):
         self.cmd_end_marker = None
         self.transpose_batches = False
 
-        if config.use_framework == 'xf':
+        if config.use_framework == 'dt':
+            from .model_xf import GPTdt
+            self.model = GPTdt(**config.model)
+        elif config.use_framework == 'xf':
             from .model_xf import GPTxf
             self.model = GPTxf(config.model)  # **config.gpt
         elif config.use_framework == 'lml':

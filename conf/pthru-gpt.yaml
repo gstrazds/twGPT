@@ -51,6 +51,8 @@ model:
   attn_pdrop: ${.dropout}
   mlp_pdrop: ${.dropout}      # used by xFormers framework
   vocab_size: 0     # gets filled in after we load the vocabulary
+#  dt_type: reward_conditioned    # Decision Transformer: reward_conditioned or naive
+#  max_timestep: None    # Decision Transformer: max num steps for an episode (for global pos embeddings)
 
 trainer:
   batch_size: 192
