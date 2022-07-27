@@ -48,45 +48,42 @@ class PlaythroughDataset(Dataset):
         self.span_filtering = span_filtering
         self.prompt_extra_len = prompt_extra_len if prompt_extra_len is not None else -10
 
-        if cmd_markers:
-            self.cmd_start = cmd_markers[0]
-            self.cmd_end = cmd_markers[1]
-            cmd_start_idxs = np.where(self.data == self.cmd_start)[0]
-            if cmd_start_idxs.size > 0:
-                cmd_end_idxs = np.where(self.data[cmd_start_idxs[0]:] == self.cmd_end)[0]
-                if cmd_end_idxs.size > 0:
-                    if cmd_end_idxs.size < cmd_start_idxs.size:  # fewer end markers than starts
-                        cmd_start_idxs = cmd_start_idxs[:cmd_end_idxs.size]  # truncate to same length
-                    np_spans = np.stack((cmd_start_idxs, cmd_end_idxs), axis=1)
-                    # if np_spans[0][0] == 0:
-                    #     np_spans = np_spans[1:]  # skip initial 'start' command
-                    self.cmd_spans = np_spans
-                    print("PlaythroughDataset cmd_spans =", self.cmd_spans)
-                    current_game = [None, None]
-                    for ispan, span in enumerate(self.cmd_spans):
-                        assert np.all(span[0] < span[1]), f"Bad dataset: inconsistent cmd markers: {self.cmd_spans}"
-                        if self.data[span[0]+1] == game_start_tok:
-                            if self.data[span[0]+2] != self.cmd_end:
-                                print("WARNING: skipping false start", span)
-                                continue
-                            if current_game[0] is None:
-                                current_game[0] = ispan
-                            elif current_game[1] is None:
-                                current_game[1] = ispan
-                                self.game_spans.append((current_game[0], current_game[1]))
-                                current_game = [ispan, None]
-                            else:
-                                assert False, f"Shouldn't be possible: {current_game} {ispan} {span}"
-                    assert ispan == len(self.cmd_spans)-1, f"{ispan} {len(self.cmd_spans)}"
-                    if current_game[0] is not None:
-                        assert current_game[1] is None, f"{current_game} {ispan} {span}"
-                        self.game_spans.append((current_game[0], -1))
-                    print(f"####################  # Games in dataset: {len(self.game_spans)}  # cmds: {len(self.cmd_spans)}")
-                    print(self.game_spans[0:3], self.game_spans[-2:])
-        else:
-            self.cmd_start = None
-            self.cmd_end = None
-            self.cmd_spans = None
+        assert cmd_markers, "REQUIRED: token ids for cmd_start, cmd_end"
+
+        self.cmd_start = cmd_markers[0]
+        self.cmd_end = cmd_markers[1]
+        cmd_start_idxs = np.where(self.data == self.cmd_start)[0]
+        if cmd_start_idxs.size > 0:
+            cmd_end_idxs = np.where(self.data[cmd_start_idxs[0]:] == self.cmd_end)[0]
+            if cmd_end_idxs.size > 0:
+                if cmd_end_idxs.size < cmd_start_idxs.size:  # fewer end markers than starts
+                    cmd_start_idxs = cmd_start_idxs[:cmd_end_idxs.size]  # truncate to same length
+                np_spans = np.stack((cmd_start_idxs, cmd_end_idxs), axis=1)
+                # if np_spans[0][0] == 0:
+                #     np_spans = np_spans[1:]  # skip initial 'start' command
+                self.cmd_spans = np_spans
+                print("PlaythroughDataset cmd_spans =", self.cmd_spans)
+                current_game = [None, None]
+                for ispan, span in enumerate(self.cmd_spans):
+                    assert np.all(span[0] < span[1]), f"Bad dataset: inconsistent cmd markers: {self.cmd_spans}"
+                    if self.data[span[0]+1] == game_start_tok:
+                        if self.data[span[0]+2] != self.cmd_end:
+                            print("WARNING: skipping false start", span)
+                            continue
+                        if current_game[0] is None:
+                            current_game[0] = ispan
+                        elif current_game[1] is None:
+                            current_game[1] = ispan
+                            self.game_spans.append((current_game[0], current_game[1]))
+                            current_game = [ispan, None]
+                        else:
+                            assert False, f"Shouldn't be possible: {current_game} {ispan} {span}"
+                assert ispan == len(self.cmd_spans)-1, f"{ispan} {len(self.cmd_spans)}"
+                if current_game[0] is not None:
+                    assert current_game[1] is None, f"{current_game} {ispan} {span}"
+                    self.game_spans.append((current_game[0], -1))
+                print(f"####################  # Games in dataset: {len(self.game_spans)}  # cmds: {len(self.cmd_spans)}")
+                print(self.game_spans[0:3], self.game_spans[-2:])
 
         self.build_index()
 
@@ -99,7 +96,6 @@ class PlaythroughDataset(Dataset):
 
 
     def print_info(self, name="PlaythroughDataset"):
-        num_cmd_tokens = 0
         num_cmd_tokens = 0
         if self.cmd_spans is not None:
             num_spans = len(self.cmd_spans)
@@ -392,19 +388,6 @@ class PlaythroughDataset(Dataset):
             return x, y, cmd_start_pos, cmd1_len-1
         else:
             return start_idx, output_len, cmd_start_idx, cmd1_len-1
-
-    # def get_cmd_prompt(self, icmd:int, continuation=-1, fill_id=None):
-    #     """ returns a span that ends with the ith cmd_start marker
-    #     (of length block_size, or less if the cmd marker position is less than block_size).
-    #     if continuation > 0, span length is extended, and x_out is padded with fill_id
-    #     if continuation < 0, continuation is auto-adjusted to a length up to and including corresponding cmd_end_marker
-    #     """
-    #     if self.cmd_spans is None or icmd >= len(self.cmd_spans):
-    #         return None, None
-    #     cmd_start_idx, cmd_end_idx = self.cmd_spans[icmd]  # span includes the start,end markers
-    #     if fill_id is None:
-    #         fill_id = self.pad_tok
-    #     return self._prompt_for_cmd_span(cmd_start_idx, cmd_end_idx, continuation=continuation, fill_id=fill_id)
 
     def _limit_to_block_size(self, start_idx, end_idx, cmd_start_idx):
         if end_idx >= len(self.data):
