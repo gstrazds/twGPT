@@ -41,6 +41,7 @@ def train_gpt(cfg: DictConfig) -> None:
 
     if cfg.train_ftwc:
         _datamodule = PlaythroughDataModule(
+            dataset_dir=cfg.data.dataset_dir,
             data_file=cfg.data.data_file,
             val_file=cfg.data.val_file,
             tokenizer_file=cfg.data.tokenizer_file,

@@ -11,7 +11,8 @@ from torch.nn import functional as F
 from torch.utils.data import Dataset, DataLoader
 from torch.nn.utils.rnn import pad_sequence
 
-from tokenizers import Tokenizer
+# from tokenizers import Tokenizer
+from transformers import PreTrainedTokenizerFast
 from datasets import load_dataset
 
 from pytorch_lightning import LightningDataModule
@@ -49,12 +50,12 @@ class PlaythroughDataset(Dataset):
         self.prompt_extra_len = prompt_extra_len if prompt_extra_len is not None else -10
 
         assert cmd_markers, "REQUIRED: token ids for cmd_start, cmd_end"
-
+        print("cmd_markers = ", cmd_markers)
         self.cmd_start = cmd_markers[0]
         self.cmd_end = cmd_markers[1]
         cmd_start_idxs = np.where(self.data == self.cmd_start)[0]
         if cmd_start_idxs.size > 0:
-            cmd_end_idxs = np.where(self.data[cmd_start_idxs[0]:] == self.cmd_end)[0]
+            cmd_end_idxs = np.where(self.data == self.cmd_end)[0]
             if cmd_end_idxs.size > 0:
                 if cmd_end_idxs.size < cmd_start_idxs.size:  # fewer end markers than starts
                     cmd_start_idxs = cmd_start_idxs[:cmd_end_idxs.size]  # truncate to same length
@@ -598,10 +599,11 @@ class PlaythroughDataModule(LightningDataModule):
 
     def __init__(
         self,
-        data_file: str = "./mingpt-training-all.pthru",
+        data_file: str = None,  #"./mingpt-training-all.pthru",
         val_file: str = None,
+        dataset_dir: str = '/ssd2tb/ftwc/playthru_data/',
         num_workers: int = 16,
-        tokenizer_file: str = "ftwc_tokenizer.json",
+        tokenizer_file: str = "ftwc_tokenizer_new.json",
         seed: int = 42,
         batch_size: int = 192,
         block_size: int = 128,
@@ -618,6 +620,7 @@ class PlaythroughDataModule(LightningDataModule):
         """
         super().__init__(*args, **kwargs)
 
+        self.dataset_dir = dataset_dir
         self.data_file = data_file
         self.tokenizer_file = tokenizer_file
         self.val_file = val_file
@@ -643,49 +646,98 @@ class PlaythroughDataModule(LightningDataModule):
         #encoded_data.tokens
         return encoded_data
 
+    def load_from_textds(self, dirpath, splits_list = None):
+        def _normalize_splitname(splitname):
+            name_parts = splitname.split('-')
+            if 'train' in name_parts:
+                return 'train'
+            elif 'valid' in name_parts:
+                return 'valid'
+            elif 'test' in name_parts:
+                return 'test'
+            return splitname
+
+        if splits_list is None:
+            splits_list = ['train', 'valid', 'test']
+        dsfiles = {_normalize_splitname(split): f"{dirpath}/{split}.textds" for split in splits_list}
+        print(dsfiles)
+
+        _dataset = load_dataset('json', data_files=dsfiles)
+        tokenized_ds = _dataset.map(lambda data: self.tokenizer(data['text']), batched=True)
+        tokenized_ds.set_format(type='numpy', columns=['input_ids'])
+        return tokenized_ds
+
     def prepare_data(self):
         """
         """
-        self.tokenizer = Tokenizer.from_file(self.tokenizer_file)
-        self.vocab_dict = self.tokenizer.get_vocab(with_added_tokens=True)
-        self.cmd_start_marker = self.tokenizer.token_to_id(CMD_START_TOKEN)
-        self.cmd_end_marker = self.tokenizer.token_to_id(CMD_END_TOKEN)
-        self.game_start_tok = self.tokenizer.token_to_id(GAME_START_CMD)
-        self.pad_tok = self.tokenizer.token_to_id(PAD_TOKEN)
+        self.tokenizer = PreTrainedTokenizerFast(tokenizer_file=self.tokenizer_file)
+        # self.tokenizer = Tokenizer.from_file(self.tokenizer_file)
+        # self.vocab_dict = self.tokenizer.get_vocab(with_added_tokens=True)
+        self.cmd_start_marker = self.tokenizer.convert_tokens_to_ids(CMD_START_TOKEN)   # .token_to_id(CMD_START_TOKEN)
+        self.cmd_end_marker = self.tokenizer.convert_tokens_to_ids(CMD_END_TOKEN)
+        self.game_start_tok = self.tokenizer.convert_tokens_to_ids(GAME_START_CMD)
+        self.pad_tok = self.tokenizer.convert_tokens_to_ids(PAD_TOKEN)
+        cmd_markers = (self.cmd_start_marker, self.cmd_end_marker)
 
         if not self.vocab_size:
-            self.vocab_size = len(self.vocab_dict)
+            self.vocab_size = self.tokenizer.vocab_size   # len(self.vocab_dict)
             # self.vocab_size = self.tokenizer.get_vocab_size(with_added_tokens=True)  # this seems to be wrong!
             # (maybe tokenizers=0.10.0rc1 impl of WordLevel model has a bug?
-            assert self.vocab_size == len(self.vocab_dict)
+            # assert self.vocab_size == len(self.vocab_dict)
         # TODO: get dataset length after loading data and use it to compute final_tokens
-        encoded_data = self.read_and_encode(self.data_file)
-        print("PlaythroughDataModule.prepare_data: ", len(encoded_data.ids))
+        if self.dataset_dir:
+            self.tokenized_ds = self.load_from_textds(self.dataset_dir)
+            encoded_data_ids = np.concatenate(self.tokenized_ds['train']['input_ids'][:])
+            # print(encoded_data_ids[:100])
+            print("PlaythroughDataModule.prepare_data: ", len(encoded_data_ids))
+            self.train_dataset = PlaythroughDataset(encoded_data_ids, self.block_size,
+                                                    vocab_size=self.vocab_size,
+                                                    cmd_markers=cmd_markers,
+                                                    game_start_tok=self.game_start_tok,
+                                                    pad_tok=self.pad_tok,
+                                                    span_filtering=self.train_filtering,  #PlaythroughDataset.TARGET_CMD_TOKENS)
+                                                    batch_size=self.batch_size,
+                                                    prompt_extra_len=-10)  # include extra len after cmd (random range(0,-10)
 
-        cmd_markers = (self.cmd_start_marker, self.cmd_end_marker)
-        self.train_dataset = PlaythroughDataset(encoded_data.ids, self.block_size,
-                                                vocab_size=self.vocab_size,
-                                                cmd_markers=cmd_markers,
-                                                game_start_tok=self.game_start_tok,
-                                                pad_tok=self.pad_tok,
-                                                span_filtering=self.train_filtering,  #PlaythroughDataset.TARGET_CMD_TOKENS)
-                                                batch_size=self.batch_size,
-                                                prompt_extra_len=-10)  # include extra len after cmd (random range(0,-10)
-
-        if self.val_file:
-            eval_encoded = self.read_and_encode(self.val_file)
-            batch_size = self.batch_size
-            # if self.eval_filtering == PlaythroughDataset.TARGET_CMD_PROMPTS:
-            #     batch_size = 1
-            self.validation_dataset = PlaythroughDataset(eval_encoded.ids, self.block_size,
+            eval_encoded_ids = np.concatenate(self.tokenized_ds['valid']['input_ids'][:])
+            # print(eval_encoded_ids[:100])
+            self.validation_dataset = PlaythroughDataset(eval_encoded_ids, self.block_size,
                                                          vocab_size=self.vocab_size,
                                                          cmd_markers=cmd_markers,
                                                          game_start_tok=self.game_start_tok,
                                                          pad_tok=self.pad_tok,
                                                          span_filtering=PlaythroughDataset.TARGET_CMD_PROMPTS,
-                                                         batch_size=batch_size,
+                                                         batch_size=self.batch_size,
                                                          prompt_extra_len=0)  # DO NOT include the cmd after the prompt
-                                        #    span_filtering = PlaythroughDataset.TARGET_CMD_PROMPTS)  # eval accuracy
+
+
+        else:
+            encoded_data = self.read_and_encode(self.data_file)
+            print("PlaythroughDataModule.prepare_data: ", len(encoded_data.ids))
+            eval_encoded = self.read_and_encode(self.val_file) if self.val_file else None
+
+            self.train_dataset = PlaythroughDataset(encoded_data.ids, self.block_size,
+                                                    vocab_size=self.vocab_size,
+                                                    cmd_markers=cmd_markers,
+                                                    game_start_tok=self.game_start_tok,
+                                                    pad_tok=self.pad_tok,
+                                                    span_filtering=self.train_filtering,  #PlaythroughDataset.TARGET_CMD_TOKENS)
+                                                    batch_size=self.batch_size,
+                                                    prompt_extra_len=-10)  # include extra len after cmd (random range(0,-10)
+
+
+            if eval_encoded:
+                batch_size = self.batch_size
+                # if self.eval_filtering == PlaythroughDataset.TARGET_CMD_PROMPTS:
+                #     batch_size = 1
+                self.validation_dataset = PlaythroughDataset(eval_encoded.ids, self.block_size,
+                                                             vocab_size=self.vocab_size,
+                                                             cmd_markers=cmd_markers,
+                                                             game_start_tok=self.game_start_tok,
+                                                             pad_tok=self.pad_tok,
+                                                             span_filtering=PlaythroughDataset.TARGET_CMD_PROMPTS,
+                                                             batch_size=batch_size,
+                                                             prompt_extra_len=0)  # DO NOT include the cmd after the prompt
 
     def train_dataloader(self):
         loader = DataLoader(
