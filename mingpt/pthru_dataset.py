@@ -657,13 +657,18 @@ class PlaythroughDataModule(LightningDataModule):
                 return 'test'
             return splitname
 
+        _tokenizer = self.tokenizer
+
+        def _tokenize_text(data: dict):
+            return _tokenizer(data['text'])
+
         if splits_list is None:
             splits_list = ['train', 'valid', 'test']
         dsfiles = {_normalize_splitname(split): f"{dirpath}/{split}.textds" for split in splits_list}
-        print(dsfiles)
+        print("load_from_textds:", dsfiles)
 
         _dataset = load_dataset('json', data_files=dsfiles)
-        tokenized_ds = _dataset.map(lambda data: self.tokenizer(data['text']), batched=True)
+        tokenized_ds = _dataset.map(_tokenize_text, batched=True)
         tokenized_ds.set_format(type='numpy', columns=['input_ids'])
         return tokenized_ds
 
