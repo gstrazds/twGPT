@@ -251,7 +251,9 @@ def main(cfg: DictConfig) -> None:
         batch_size=cfg.trainer.batch_size,
         block_size=cfg.model.block_size,
         train_filtering=cfg.data.train_filtering,
-        eval_filtering=cfg.data.eval_filtering, )
+        eval_filtering=cfg.data.eval_filtering,
+        ignore_kg=cfg.data.ignore_kg,
+    )
 
     _datamodule.prepare_data()
     tokenizer = _datamodule.tokenizer

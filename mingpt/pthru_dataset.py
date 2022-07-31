@@ -17,8 +17,10 @@ from datasets import load_dataset
 
 from pytorch_lightning import LightningDataModule
 
+
 logger = logging.getLogger(__name__)
 
+MAX_PTHRU_STEPS = 30
 
 CMD_START_TOKEN = '>>>['
 CMD_END_TOKEN = ']<<<'
@@ -609,6 +611,7 @@ class PlaythroughDataModule(LightningDataModule):
         block_size: int = 128,
         train_filtering = None,
         eval_filtering = PlaythroughDataset.TARGET_CMD_TOKENS,
+        ignore_kg = False,
         *args,
         **kwargs,
     ):
@@ -637,6 +640,7 @@ class PlaythroughDataModule(LightningDataModule):
         self.pad_tok = None
         self.train_filtering = train_filtering
         self.eval_filtering = eval_filtering
+        self.ignore_kg = ignore_kg
 
     def read_and_encode(self, filepath):
         with open(filepath, 'r') as file:
@@ -646,7 +650,7 @@ class PlaythroughDataModule(LightningDataModule):
         #encoded_data.tokens
         return encoded_data
 
-    def load_from_textds(self, dirpath, splits_list = None):
+    def load_from_textds(self, dirpath, splits_list = None, no_kg=False):
         def _normalize_splitname(splitname):
             name_parts = splitname.split('-')
             if 'train' in name_parts:
@@ -658,18 +662,21 @@ class PlaythroughDataModule(LightningDataModule):
             return splitname
 
         _tokenizer = self.tokenizer
-
+        _text_field = 'text0' if no_kg else 'text'
         def _tokenize_text(data: dict):
-            return _tokenizer(data['text'])
+            return _tokenizer(data[_text_field])
 
         if splits_list is None:
             splits_list = ['train', 'valid', 'test']
         dsfiles = {_normalize_splitname(split): f"{dirpath}/{split}.textds" for split in splits_list}
-        print("load_from_textds:", dsfiles)
+        print(f"load_from_textds({_text_field}, {dsfiles})")
 
-        _dataset = load_dataset('json', data_files=dsfiles)
-        tokenized_ds = _dataset.map(_tokenize_text, batched=True)
+        _dataset = load_dataset('json', data_files=dsfiles)        # ,download_mode='force_redownload')
+        for splitname in _dataset:
+            _dataset[splitname] = _dataset[splitname].filter(lambda rec: rec['numsteps'] <= MAX_PTHRU_STEPS)
+        tokenized_ds = _dataset.map(_tokenize_text, batched=True, load_from_cache_file=False)
         tokenized_ds.set_format(type='numpy', columns=['input_ids'])
+        print(tokenized_ds)
         return tokenized_ds
 
     def prepare_data(self):
@@ -691,7 +698,7 @@ class PlaythroughDataModule(LightningDataModule):
             # assert self.vocab_size == len(self.vocab_dict)
         # TODO: get dataset length after loading data and use it to compute final_tokens
         if self.dataset_dir:
-            self.tokenized_ds = self.load_from_textds(self.dataset_dir)
+            self.tokenized_ds = self.load_from_textds(self.dataset_dir, no_kg=self.ignore_kg)
             encoded_data_ids = np.concatenate(self.tokenized_ds['train']['input_ids'][:])
             # print(encoded_data_ids[:100])
             print("PlaythroughDataModule.prepare_data: ", len(encoded_data_ids))

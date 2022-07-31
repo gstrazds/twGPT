@@ -27,15 +27,16 @@ general:
   random_seed: 42
 
 data:
-  dataset_dir: /ssd2tb/gata/playthru_data/
+  dataset_dir: /ssd2tb/twdata/combined
   # data_file: ${cwd_path}/tw-cooking-recipe3+take3+cut+go6-Z7L8CvEPsO53iKDg.pthru  #
   data_file: ${cwd_path}/mingpt-training-all.pthru   #gata-train-all.pthru  #
   val_file:  ${cwd_path}/mingpt-valid-all.pthru  # gata|mingpt-valid-all.pthru
   test_file: ${cwd_path}/mingpt-test-all.pthru # ${cwd_path}/gata-test-all.pthru
-  tokenizer_file: ${.dataset_dir}/../gata_tokenizer_new.json   #ftwc_tokenizer_new.json
+  tokenizer_file: ${.dataset_dir}/../ftwc/ftwc_tokenizer_new.json   #ftwc_tokenizer_new.json
   num_workers: 0  # > 0 when using ddp and multiple gpus
   train_filtering: cmd_prompts  # cmd_tokens, cmd_prompts
   eval_filtering: cmd_prompts  #${data.train_filtering}
+  ignore_kg: false
 
 model:
   arch: gpt
@@ -87,7 +88,7 @@ eval:
   which_set: valid    # valid or test
   play_games: false
   which_games: gata   # gata or ftwc
-  root_dir: /ssd2tb/${eval.which_games}  # /ssd2tb/ftwc
+  root_dir: /ssd2tb/twdata/${eval.which_games}  # /ssd2tb/ftwc
   pthru_data_dir: ${.root_dir}/playthru_data/${.which_games}_${.which_set}  #mingpt-${eval.which_set}
   games_dir: ${.root_dir}/games_${.which_games}/${.which_set}/
   show_samples: false   # ${trainer.eval_predict}
