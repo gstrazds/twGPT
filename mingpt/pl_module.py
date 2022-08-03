@@ -524,7 +524,10 @@ def convert_validation_batch(batch_x, batch_y, batch_cmd_pos, batch_cmd_len, max
     max_cmd_len = max(batch_cmd_len)
     block_size = batch_x.shape[1]+max_cmd_len
     if max_block_size and max_block_size < block_size:
+        truncate_to_max = True
         block_size=max_block_size
+    else:
+        truncate_to_max = False
     new_x = torch.zeros((batch_x.shape[0], block_size), dtype=batch_x.dtype).to(batch_x.device)
     new_y = torch.zeros((batch_y.shape[0], block_size), dtype=batch_y.dtype).to(batch_y.device)
     new_pos = []
@@ -543,7 +546,7 @@ def convert_validation_batch(batch_x, batch_y, batch_cmd_pos, batch_cmd_len, max
         #            f"{batch_y[i]}")
 
         cmd_len = batch_cmd_len[i]
-        if max_block_size:
+        if truncate_to_max:   # max_block_size:
             prefix_len = block_size - cmd_len
             new_x[i, 0:prefix_len + 1] = batch_x[i, cmd_len - 1:]
             new_y[i, 0:prefix_len] = batch_x[i, cmd_len:]
