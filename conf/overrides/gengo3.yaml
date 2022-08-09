@@ -2,22 +2,27 @@
 # overrides for main config from config.yaml
 
 gpus:  # set to a single int n to auto-select n gpus from all available, or to a list of gpu indices e.g. [0,1,2,3]
-#  - 0  # yaml format for a list
-#  - 1
+  - 0  # yaml format for a list
+  - 1
   - 2
   - 3
 
+#data:
+# ?  train_filtering: cmd_tokens # cmd_prompts  (best historical results obtained using cmd_tokens?)
+
 model:
-  block_size: 512  # spatial extent of the model for its context
+  block_size: 1024  # spatial extent of the model for its context
   d_embd: 512
+  n_layers: 8
+  n_heads: 8
 
 trainer:
-  batch_size: 32
-  max_epochs: 4
-  learning_rate: 3e-4
-  patience: 20
-  save_top_k: 20
-#  val_check_interval: 0.2
+  batch_size: 8
+  max_epochs: 8
+  learning_rate: 6e-4
+  patience: 30
+  save_top_k: 30
+  val_check_interval: 0.1
 #  limit_val_batches: 10000  # this should cover all of our current validation set (but maybe not the test set?)
 
 eval:
