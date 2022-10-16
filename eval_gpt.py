@@ -244,7 +244,8 @@ def main(cfg: DictConfig) -> None:
 
     _datamodule = PlaythroughDataModule(
         data_file=cfg.data.data_file,
-        val_file=cfg.data.val_file,
+        val_file=cfg.eval.val_file,
+        dataset_dir=cfg.eval.pthru_data_dir,
         tokenizer_file=cfg.data.tokenizer_file,
         num_workers=cfg.data.num_workers,
         seed=cfg.general.random_seed,
