@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 # coding: utf-8
-from typing import List, Dict, Optional, Any, Tuple
+from typing import List, Dict, Optional, Any, Tuple, Iterable, Mapping
 import logging
 import random
 import numpy as np
@@ -604,6 +604,7 @@ class PlaythroughDataModule(LightningDataModule):
         data_file: str = None,  #"./mingpt-training-all.pthru",
         val_file: str = None,
         dataset_dir: str = '/ssd2tb/ftwc/playthru_data/',
+        splits_list: Optional[Iterable[str]] = None,   # ['train', 'valid', 'test']
         num_workers: int = 16,
         tokenizer_file: str = "ftwc_tokenizer_new.json",
         seed: int = 42,
@@ -624,9 +625,10 @@ class PlaythroughDataModule(LightningDataModule):
         super().__init__(*args, **kwargs)
 
         self.dataset_dir = dataset_dir
+        self.splits_list = splits_list
         self.data_file = data_file
-        self.tokenizer_file = tokenizer_file
         self.val_file = val_file
+        self.tokenizer_file = tokenizer_file
         self.num_workers = num_workers
         self.seed = seed
         self.block_size = block_size
@@ -650,7 +652,7 @@ class PlaythroughDataModule(LightningDataModule):
         #encoded_data.tokens
         return encoded_data
 
-    def load_from_textds(self, dirpath, splits_list = None, no_kg=False):
+    def load_from_textds(self, dirpath, splits_list=None, no_kg=False):
         def _normalize_splitname(splitname):
             name_parts = splitname.split('-')
             if 'train' in name_parts:
@@ -666,7 +668,7 @@ class PlaythroughDataModule(LightningDataModule):
         def _tokenize_text(data: dict):
             return _tokenizer(data[_text_field])
 
-        if splits_list is None:
+        if not splits_list:
             splits_list = ['train', 'valid', 'test']
         dsfiles = {_normalize_splitname(split): f"{dirpath}/{split}.textds" for split in splits_list}
         print(f"load_from_textds({_text_field}, {dsfiles})")
@@ -698,22 +700,23 @@ class PlaythroughDataModule(LightningDataModule):
             # assert self.vocab_size == len(self.vocab_dict)
         # TODO: get dataset length after loading data and use it to compute final_tokens
         if self.dataset_dir:
-            self.tokenized_ds = self.load_from_textds(self.dataset_dir, no_kg=self.ignore_kg)
-            encoded_data_ids = np.concatenate(self.tokenized_ds['train']['input_ids'][:])
-            # print(encoded_data_ids[:100])
-            print("PlaythroughDataModule.prepare_data: ", len(encoded_data_ids))
-            self.train_dataset = PlaythroughDataset(encoded_data_ids, self.block_size,
-                                                    vocab_size=self.vocab_size,
-                                                    cmd_markers=cmd_markers,
-                                                    game_start_tok=self.game_start_tok,
-                                                    pad_tok=self.pad_tok,
-                                                    span_filtering=self.train_filtering,  #PlaythroughDataset.TARGET_CMD_TOKENS)
-                                                    batch_size=self.batch_size,
-                                                    prompt_extra_len=-10)  # include extra len after cmd (random range(0,-10)
-
-            eval_encoded_ids = np.concatenate(self.tokenized_ds['valid']['input_ids'][:])
+            self.tokenized_ds = self.load_from_textds(self.dataset_dir, splits_list=self.splits_list, no_kg=self.ignore_kg)
+            for splitkey in self.tokenized_ds:
+                encoded_data_ids = np.concatenate(self.tokenized_ds[splitkey]['input_ids'][:])
+                # print(encoded_data_ids[:100])
+                print(f"PlaythroughDataModule.prepare_data({splitkey}): ", len(encoded_data_ids))
+                if 'train' in splitkey:
+                    self.train_dataset = PlaythroughDataset(encoded_data_ids, self.block_size,
+                                                            vocab_size=self.vocab_size,
+                                                            cmd_markers=cmd_markers,
+                                                            game_start_tok=self.game_start_tok,
+                                                            pad_tok=self.pad_tok,
+                                                            span_filtering=self.train_filtering,  #PlaythroughDataset.TARGET_CMD_TOKENS)
+                                                            batch_size=self.batch_size,
+                                                            prompt_extra_len=-10)  # include extra len after cmd (random range(0,-10)
+                else:
             # print(eval_encoded_ids[:100])
-            self.validation_dataset = PlaythroughDataset(eval_encoded_ids, self.block_size,
+                    eval_dataset = PlaythroughDataset(encoded_data_ids, self.block_size,
                                                          vocab_size=self.vocab_size,
                                                          cmd_markers=cmd_markers,
                                                          game_start_tok=self.game_start_tok,
@@ -721,6 +724,8 @@ class PlaythroughDataModule(LightningDataModule):
                                                          span_filtering=PlaythroughDataset.TARGET_CMD_PROMPTS,
                                                          batch_size=self.batch_size,
                                                          prompt_extra_len=0)  # DO NOT include the cmd after the prompt
+                    #if 'valid' in splitkey:
+                    self.validation_dataset = eval_dataset
 
 
         else:

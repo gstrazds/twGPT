@@ -17,7 +17,7 @@ from pytorch_lightning import seed_everything
 from pytorch_lightning.utilities import rank_zero_info
 
 from twutils.playthroughs import TW_TRAINING_DIR, CMD_START_TOKEN, CMD_END_TOKEN, GAME_START_CMD
-from twutils.playthroughs import start_game_for_playthrough, step_game_for_playthrough
+from twutils.playthroughs import start_twenv_for_playthrough, step_twenv_for_playthrough
 from twutils.playthroughs import playthrough_step_to_json, format_playthrough_step, concat_pthru_step
 
 from mingpt.pthru_dataset import PlaythroughDataModule
@@ -78,6 +78,7 @@ def predict_cmd(pl_module, tokenizer, pthru_so_far: str, failed_cmds: List[str] 
 
 
 def format_step_json(agent_kg, step_json):
+    print("WIP DEBUGGGING format_step_json:", step_json)
     step_json = list(step_json.values())[0]
     prev_action = step_json.get('prev_action', None)
     if prev_action and " the " in prev_action:
@@ -132,7 +133,7 @@ def grow_pthru_if_cmd_ok(pthru_so_far, prev_cmd, infos, reward, pthru_step):
     return pthru_so_far, False  # try a different command
 
 
-def play_game(gamename, pl_module, tokenizer, gamedir=TW_TRAINING_DIR, max_steps=45):
+def play_game(gamename, pl_module, tokenizer, gamedir=TW_TRAINING_DIR, max_steps=45, use_internal_names=False):
     _gamefile = f"{gamedir}/{gamename}.z8"
     _dones = [0]
     _rewards = [0]
@@ -141,16 +142,20 @@ def play_game(gamename, pl_module, tokenizer, gamedir=TW_TRAINING_DIR, max_steps
     next_cmds = [GAME_START_CMD]
     attempted_cmds = []  # cmds we've already tried for a given step that DIDN'T do anything
 
-    gymenv, _obs, _infos = start_game_for_playthrough(_gamefile,
+    twenv, _obs, _infos = start_twenv_for_playthrough([_gamefile],
                                                       raw_obs_feedback=False,  # simplify obs and feedback text
-                                                      passive_oracle_mode=True)
+                                                      passive_oracle_mode=True,
+                                                      use_internal_names=use_internal_names)
 
-    agent_kg = gymenv.tw_oracles[0].gi.kg
+    agent_kg = twenv.tw_oracle.gi.kg
 
-    step_json = playthrough_step_to_json(next_cmds, _dones, _infos, _obs, _rewards, num_steps)
-        # save_playthrough_step_info_to_redis(gamename, num_steps, _obs, _rewards, _dones, _infos,
-        #                                                          next_cmds,
-        #                                                          redis=None, do_write=False)
+    # step_json = playthrough_step_to_json(next_cmds, _dones, _infos, _obs, _rewards, num_steps)
+    playthru_step_data = playthrough_step_to_json(next_cmds, _dones, _infos, _obs, _rewards, num_steps, use_internal_names=use_internal_names)
+    # playthru_step_data is a list of list of json dicts (with data for a single game step),
+    #   one entry for each game in the batch
+    step_json = playthru_step_data[0]
+
+#---------------------
 
     _, pthru_step = format_step_json(agent_kg, step_json)
     pthru_so_far, cmd_was_ok = grow_pthru_if_cmd_ok(pthru_so_far,
@@ -160,6 +165,7 @@ def play_game(gamename, pl_module, tokenizer, gamedir=TW_TRAINING_DIR, max_steps
         next_cmds = _infos['tw_o_step']
     else:
         next_cmds = [None] * len(_obs)
+
     predicted_cmd = predict_cmd(pl_module, tokenizer, pthru_so_far, failed_cmds=None)
     print(f"Oracle: |{next_cmds[0]}|  Model: |{predicted_cmd}|")
     next_cmds[0] = predicted_cmd
@@ -244,8 +250,9 @@ def main(cfg: DictConfig) -> None:
 
     _datamodule = PlaythroughDataModule(
         data_file=cfg.data.data_file,
-        val_file=cfg.eval.val_file,
+        val_file=cfg.data.val_file,
         dataset_dir=cfg.eval.pthru_data_dir,
+        splits_list=[cfg.eval.which_set],
         tokenizer_file=cfg.data.tokenizer_file,
         num_workers=cfg.data.num_workers,
         seed=cfg.general.random_seed,
@@ -260,7 +267,7 @@ def main(cfg: DictConfig) -> None:
     tokenizer = _datamodule.tokenizer
 
     # dynamically set some config/hparam values (ensures that they get saved with results of each run)
-    valid_dataset = _datamodule.train_dataset
+    valid_dataset = _datamodule.validation_dataset
     GPTLitModule.adjust_cfg_vocab(cfg, valid_dataset)
     # cfg.model.vocab_size = _datamodule.vocab_size
     # cfg.trainer.decay_tokens = 2 * len(train_dataset) * train_dataset.block_size
@@ -278,7 +285,7 @@ def main(cfg: DictConfig) -> None:
 
     # print(f"Training dataset length={len(_datamodule.train_dataset)} (raw:{len(_datamodule.train_dataset.data)})")
     # print(f"Validation dataset length={len(_datamodule.validation_dataset)} (raw:{len(_datamodule.validation_dataset.data)})")
-    _datamodule.train_dataset.print_info("train_dataset")
+    #_datamodule.train_dataset.print_info("train_dataset")
     _datamodule.validation_dataset.print_info("validation_dataset")
     dataset = _datamodule.validation_dataset
     dataloader = _datamodule.val_dataloader()
