@@ -60,7 +60,7 @@ trainer:
   batch_size: 192
   max_epochs: 3
   learning_rate: 6e-4
-  val_check_interval: 0.5
+  val_check_interval: 0.2
   patience: 25
   save_top_k: 7
   limit_val_batches: 10000  # this should cover all of our current validation set (but maybe not the test set?)
