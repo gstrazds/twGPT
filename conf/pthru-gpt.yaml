@@ -37,6 +37,7 @@ data:
   train_filtering: cmd_prompts  # cmd_tokens, cmd_prompts
   eval_filtering: cmd_prompts  #${data.train_filtering}
   ignore_kg: false
+  max_pthru_steps: 30
 
 model:
   arch: gpt

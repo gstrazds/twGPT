@@ -266,6 +266,7 @@ def main(cfg: DictConfig) -> None:
         train_filtering=cfg.data.train_filtering,
         eval_filtering=cfg.data.eval_filtering,
         ignore_kg=cfg.data.ignore_kg,
+        max_pthru_steps=cfg.data.max_pthru_steps,
     )
 
     _datamodule.prepare_data()

@@ -12,6 +12,7 @@ data:
 #  tokenizer_file: ${.dataset_dir}/combined_tokenizer.json   #ftwc_tokenizer_new.json
 #  num_workers: 0  # > 0 when using ddp and multiple gpus
 #  train_filtering: cmd_prompts  # cmd_tokens, cmd_prompts
+#  max_pthru_steps: 30
 
 model:
 #  block_size: 128  # aka seq_len or 'attention window size'

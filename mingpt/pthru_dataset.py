@@ -652,7 +652,7 @@ class PlaythroughDataModule(LightningDataModule):
         #encoded_data.tokens
         return encoded_data
 
-    def load_from_textds(self, dirpath, splits_list=None, no_kg=False):
+    def load_from_textds(self, dirpath, splits_list=None, no_kg=False, max_pthru_steps=MAX_PTHRU_STEPS):
         def _normalize_splitname(splitname):
             name_parts = splitname.split('-')
             if 'train' in name_parts:
@@ -674,8 +674,9 @@ class PlaythroughDataModule(LightningDataModule):
         print(f"load_from_textds({_text_field}, {dsfiles})")
 
         _dataset = load_dataset('json', data_files=dsfiles)        # ,download_mode='force_redownload')
-        for splitname in _dataset:
-            _dataset[splitname] = _dataset[splitname].filter(lambda rec: rec['numsteps'] <= MAX_PTHRU_STEPS)
+        if max_pthru_steps and max_pthru_steps > 0:
+            for splitname in _dataset:
+                _dataset[splitname] = _dataset[splitname].filter(lambda rec: rec['numsteps'] <= max_pthru_steps)
         tokenized_ds = _dataset.map(_tokenize_text, batched=True, load_from_cache_file=False)
         tokenized_ds.set_format(type='numpy', columns=['input_ids'])
         print(tokenized_ds)
