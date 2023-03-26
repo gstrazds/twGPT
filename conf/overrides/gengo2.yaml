@@ -10,14 +10,14 @@ gpus:  # set to a single int n to auto-select n gpus from all available, or to a
 model:
 #  block_size: 128  # aka seq_len or 'attention window size'
   block_size: 512  # spatial extent of the model for its context
-#  n_layers: 7
+#  n_layers: 8
 #  n_heads: 8
   d_embd: 512
 
 trainer:
   batch_size: 32
-  max_epochs: 7
-  learning_rate: 2e-4
+  max_epochs: 6
+  learning_rate: 3e-4
   patience: 30
   save_top_k: 20
 #  val_check_interval: 0.2
