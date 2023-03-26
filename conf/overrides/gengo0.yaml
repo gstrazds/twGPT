@@ -22,7 +22,7 @@ model:
 
 trainer:
   batch_size: 32
-  max_epochs: 6
+  max_epochs: 20
   learning_rate: 3e-4
   patience: 30
   save_top_k: 20
