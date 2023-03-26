@@ -94,6 +94,6 @@ eval:
   show_samples: false   # ${trainer.eval_predict}
 
 wandb:
-  proj: tw-${use_framework}-${model.arch}
+  proj: iclp-${use_framework}-${model.arch}
   experiment: null
 
