@@ -7,6 +7,12 @@ gpus:  # set to a single int n to auto-select n gpus from all available, or to a
 #  - 2
 #  - 3
 
+data:
+  dataset_dir: /work2/gstrazds/twdata/combined
+#  tokenizer_file: ${.dataset_dir}/combined_tokenizer.json   #ftwc_tokenizer_new.json
+#  num_workers: 0  # > 0 when using ddp and multiple gpus
+#  train_filtering: cmd_prompts  # cmd_tokens, cmd_prompts
+
 model:
 #  block_size: 128  # aka seq_len or 'attention window size'
   block_size: 512  # spatial extent of the model for its context
@@ -18,7 +24,7 @@ trainer:
   batch_size: 32
   max_epochs: 6
   learning_rate: 3e-4
-  patience: 20
+  patience: 30
   save_top_k: 20
 #  val_check_interval: 0.2
 #  limit_val_batches: 10000  # this should cover all of our current validation set (but maybe not the test set?)

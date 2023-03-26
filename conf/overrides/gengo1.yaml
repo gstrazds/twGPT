@@ -7,6 +7,12 @@ gpus:  # set to a single int n to auto-select n gpus from all available, or to a
 #  - 2
 #  - 3
 
+data:
+  dataset_dir: /work2/gstrazds/twdata/combined
+#  tokenizer_file: ${.dataset_dir}/combined_tokenizer.json   #ftwc_tokenizer_new.json
+#  num_workers: 0  # > 0 when using ddp and multiple gpus
+#  train_filtering: cmd_prompts  # cmd_tokens, cmd_prompts
+
 model:
 #  block_size: 128  # aka seq_len or 'attention window size'
   block_size: 384  # spatial extent of the model for its context
