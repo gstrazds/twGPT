@@ -11,10 +11,13 @@ gpus:  # set to a single int n to auto-select n gpus from all available, or to a
 # ?  train_filtering: cmd_tokens # cmd_prompts  (best historical results obtained using cmd_tokens?)
 
 model:
+#  block_size: 128  # aka seq_len or 'attention window size'
   block_size: 1024  # spatial extent of the model for its context
-  d_embd: 512
+#  n_layers: 7
   n_layers: 8
+#  n_heads: 8
   n_heads: 8
+  d_embd: 512
 
 trainer:
   batch_size: 8

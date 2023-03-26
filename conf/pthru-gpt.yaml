@@ -40,8 +40,8 @@ data:
 
 model:
   arch: gpt
-  block_size: 128  # aka seq_len or 'attention window size'
   attention_type: scaled_dot_product  # for xFormers (xf) framework
+  block_size: 128  # aka seq_len or 'attention window size'
   n_layers: 7
   n_heads: 8
   d_embd: 512
