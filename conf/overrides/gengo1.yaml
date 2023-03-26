@@ -30,7 +30,10 @@ trainer:
 #  limit_val_batches: 10000  # this should cover all of our current validation set (but maybe not the test set?)
 
 eval:
-  root_dir: /work2/gstrazds/ftwc
+  play_games: false
+  which_games: gata   # gata or ftwc
+  which_set: valid    # valid or test
+  root_dir: /work2/gstrazds/twdata/${eval.which_games}  # /ssd2tb/twdata
   checkpoint: ${cwd_path}/saved_models/instrgpt-epoch=4-step=0-train_loss_step=0.016-val_loss=0.651.ckpt #(91.67%) 90.9%
   # checkpoint: ${cwd_path}/saved_models/instrgpt-22-23-25-ep2-train0.024-val0.574.ckpt # 90.22 %
   #  ${cwd_path}/saved_models/instrgpt-epoch=2-step=0-train_loss_step=0.024-val_loss=0.574.ckpt  # 91.97%

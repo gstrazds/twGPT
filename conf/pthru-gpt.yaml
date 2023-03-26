@@ -85,9 +85,9 @@ eval:
 #  checkpoint: ${cwd_path}/saved_models/2022-05-11/mingpt:gpt:pthru-epoch=1-step=331-cmd_acc=0.669-val_loss=0.772.ckpt
   checkpoint: ${cwd_path}/saved_models/2022-05-18/mingpt:gpt:pthru-epoch=2-step=463-val_acc=0.659-val_loss=0.877.ckpt #TOK_ACC = 75.57 CMD_ACC = 68.14
 
-  which_set: valid    # valid or test
   play_games: false
   which_games: gata   # gata or ftwc
+  which_set: valid    # valid or test
   root_dir: /ssd2tb/twdata/${eval.which_games}  # /ssd2tb/ftwc
   pthru_data_dir: ${.root_dir}/playthru_data/${.which_games}_${.which_set}  #mingpt-${eval.which_set}
   games_dir: ${.root_dir}/games_${.which_games}/${.which_set}/

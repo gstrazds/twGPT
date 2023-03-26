@@ -136,6 +136,7 @@ def grow_pthru_if_cmd_ok(pthru_so_far, prev_cmd, infos, reward, pthru_step):
 
 def play_game(gamename, pl_module, tokenizer, gamedir=TW_TRAINING_DIR, max_steps=45, use_internal_names=False):
     _gamefile = f"{gamedir}/{gamename}.z8"
+    #_gamefile = f"{gamedir}/{gamename}.json"
     _dones = [0]
     _rewards = [0]
     num_steps = 0
