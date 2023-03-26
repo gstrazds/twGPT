@@ -1,4 +1,4 @@
-project: sweepGPT
+project: sweep4ICLP
 program: train_gpt.py
 metric:
   name: cmd_acc
@@ -8,10 +8,14 @@ method: bayes
 parameters:
   model.n_layers:
     min: 8
+    max: 12
+  trainer.decay_multiplier:
+    min: 6
     max: 10
+
 #  trainer.learning_rate:
-    #min: !!float 1e-5
-    #max: 0.001
+#    min: !!float 1e-5
+#    max: 0.001
 
 #  experiment:
 #    values: [expt001, expt002]
@@ -22,3 +26,4 @@ command:
 - ${program}
 - ${args_no_hyphens}
 - "use_wandb=true"
+- "overrides=gengo2"
