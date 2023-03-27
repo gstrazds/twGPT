@@ -365,8 +365,8 @@ def main(cfg: DictConfig) -> None:
         rank_zero_info(f"----------- eval : {eval_done_time} -- elapsed: {eval_done_time - eval_start_time}")
         cmd_acc = 0.0 if num_cmds == 0 else full_matches / num_cmds
         token_acc = 0.0 if total_cmd_tokens == 0 else tokens_matched / total_cmd_tokens
-        print(f"TOKENS: {tokens_matched}/{total_cmd_tokens} acc={token_acc*100:02.2f} % \t" +
-              f"CMDS: {full_matches}/{num_cmds} acc={cmd_acc*100:02.2f} %")
+        print(f"TOKENS: {tokens_matched}/{total_cmd_tokens} tok_acc={token_acc*100:02.2f} % \t" +
+              f"CMDS: {full_matches}/{num_cmds} cmd_acc={cmd_acc*100:02.2f} %")
 
         if results_dir:  # (not hasattr(trainer, "rank") or trainer.rank == 0):
             results_file = f'{results_dir}/epoch{trainer_epoch:02d}_step{trainer_global_step:04d}_{token_acc:.4f}_{cmd_acc:.4f}.txt'
