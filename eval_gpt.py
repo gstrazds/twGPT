@@ -353,7 +353,7 @@ def main(cfg: DictConfig) -> None:
         trainer_global_step = 0
         eval_start_time = datetime.datetime.now()
 
-        use_old_version = False
+        use_old_version = True
         if use_old_version:
             tokens_matched, total_cmd_tokens, full_matches, num_cmds = pl_model.eval_predict_cmd_tokens(dataset,
                 tokenizer=_datamodule.tokenizer, show_samples=cfg.eval.show_samples)

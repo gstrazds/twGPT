@@ -32,12 +32,14 @@ trainer:
 
 eval:
   play_games: false
-  which_games: gata   # gata or ftwc
+  which_games: ftwc   # gata or ftwc
   which_set: valid    # valid or test
-  ds_filename: gata_valid  #defaults to which_set (which is correct for ftwc, but not for gata)
+  #ds_filename: gata_valid  #defaults to which_set (which is correct for ftwc, but not for gata)
   root_dir: /work2/gstrazds/twdata/${eval.which_games}  # /ssd2tb/twdata/ftwc
   pthru_data_dir: ${.root_dir}/alt.playthru_data         # /${.which_games}_${.which_set}  #mingpt-${eval.which_set}
 
-  checkpoint: ${cwd_path}/saved_models/L12-g2-m8-sweep-8/mingpt:gpt:pthru-epoch=5-step=4802-val_acc=0.759-val_loss=0.363.ckpt
-  # instrgpt-epoch=3-step=0-train_loss_step=0.018-val_loss=0.646.ckpt  # 90.61% 2021-01-03/10-24-18
+  checkpoint: ${cwd_path}/saved_models/L08-g2-m10-sweep-7/mingpt:gpt:pthru-epoch=5-step=4802-val_acc=0.741-val_loss=0.335.ckpt
+  #checkpoint: ${cwd_path}/saved_models/L12-g2-m8-sweep-8/mingpt:gpt:pthru-epoch=5-step=4802-val_acc=0.759-val_loss=0.363.ckpt
+
+# instrgpt-epoch=3-step=0-train_loss_step=0.018-val_loss=0.646.ckpt  # 90.61% 2021-01-03/10-24-18
   # ${cwd_path}/saved_models/mingpt-epoch=3-step=0-train_loss_step=0.042-val_loss=0.442.ckpt
