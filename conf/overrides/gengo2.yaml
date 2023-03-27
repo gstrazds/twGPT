@@ -34,6 +34,8 @@ eval:
   play_games: false
   which_games: gata   # gata or ftwc
   which_set: valid    # valid or test
-  root_dir: /work2/gstrazds/twdata/${eval.which_games}  # /ssd2tb/twdata
+  root_dir: /work2/gstrazds/twdata/${eval.which_games}  # /ssd2tb/twdata/ftwc
+  pthru_data_dir: ${.root_dir}/alt.playthru_data         # /${.which_games}_${.which_set}  #mingpt-${eval.which_set}
+
   checkpoint: ${cwd_path}/saved_models/instrgpt-epoch=3-step=0-train_loss_step=0.018-val_loss=0.646.ckpt  # 90.61% 2021-01-03/10-24-18
   # ${cwd_path}/saved_models/mingpt-epoch=3-step=0-train_loss_step=0.042-val_loss=0.442.ckpt
