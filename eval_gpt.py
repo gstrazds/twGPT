@@ -257,7 +257,7 @@ def main(cfg: DictConfig) -> None:
         dataset_dir=cfg.eval.pthru_data_dir,
         data_file=cfg.data.data_file,
         val_file=cfg.data.val_file,
-        splits_list=[cfg.eval.which_set],  # =None loads all ['train', 'valid', 'test']
+        splits_list=[cfg.eval.ds_filename],  # =None loads all splits ['train', 'valid', 'test']
         tokenizer_file=cfg.data.tokenizer_file,
         num_workers=cfg.data.num_workers,
         seed=cfg.general.random_seed,

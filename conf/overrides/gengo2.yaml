@@ -34,6 +34,7 @@ eval:
   play_games: false
   which_games: gata   # gata or ftwc
   which_set: valid    # valid or test
+  ds_filename: gata_valid  #defaults to which_set (which is correct for ftwc, but not for gata)
   root_dir: /work2/gstrazds/twdata/${eval.which_games}  # /ssd2tb/twdata/ftwc
   pthru_data_dir: ${.root_dir}/alt.playthru_data         # /${.which_games}_${.which_set}  #mingpt-${eval.which_set}
 
