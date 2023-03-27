@@ -65,7 +65,7 @@ def train_gpt(cfg: DictConfig) -> None:
             block_size=cfg.model.block_size, )
 
     _datamodule.prepare_data()
-    assert PADDING_INDEX == _datamodule.pad_tok, f"PADDING TOKEN index = {_datmodule.pad_tok} (should be {PADDING_INDEX})"
+    assert PADDING_INDEX == _datamodule.pad_tok, f"PADDING TOKEN index = {_datamodule.pad_tok} (should be {PADDING_INDEX})"
 
     # dynamically set some config/hparam values (ensures that they get saved with results of each run)
     train_dataset = _datamodule.train_dataset

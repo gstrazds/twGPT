@@ -246,10 +246,10 @@ class GPTLitModule(pl.LightningModule):
 
     def test_step(self, batch, batch_idx):
         metrics = self.validation_step(batch, batch_idx)
-        metrics = {'test_loss': metrics['val_loss'],
-                   'test_acc': metrics['val_acc'],
-                   }
-        self.log_dict(metrics)
+        test_metrics = {'test_loss': metrics['val_loss']}
+        if 'val_acc' in metrics:
+            test_metrics['test_acc'] = metrics['val_acc']
+        self.log_dict(test_metrics)
 
     # def test_epoch_end(self, outs):
     #     result = self.validation_epoch_end(outs)
