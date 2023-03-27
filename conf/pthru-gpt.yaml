@@ -77,6 +77,7 @@ trainer:
   eval_predict: true
 
 eval:
+  dataset_dir: ${data.dataset_dir}
   chkpt_dir: null
   chkpt_glob: null
   results_dir: null
