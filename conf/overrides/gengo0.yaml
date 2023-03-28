@@ -37,5 +37,5 @@ eval:
   which_set: valid    # valid or test
   #ds_filename: gata_${.which_set}  #defaults to which_set (which is correct for ftwc, but not for gata)
   root_dir: /work2/gstrazds/twdata/${eval.which_games}  # /ssd2tb/twdata
-  checkpoint: ${cwd_path}/saved_models/L12-g0-m7-sweep-3/mingpt:gpt:pthru-epoch=6-step=5489-val_acc=0.706-val_loss=0.603.ckpt
+  checkpoint: ${cwd_path}/saved_models/L10-g0-m6-run-11/mingpt:gpt:pthru-epoch=6-step=5489-val_acc=0.707-val_loss=0.639.ckpt
 
