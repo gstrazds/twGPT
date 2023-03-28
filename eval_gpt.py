@@ -308,7 +308,7 @@ def main(cfg: DictConfig) -> None:
         n_wins = 0
         n_losses = 0
         n_stuck = 0
-        pthru_glob = f"{cfg.eval.pthru_data_dir}/{cfg.eval.df_filename}/*.pthru"
+        pthru_glob = f"{cfg.eval.pthru_data_dir}/{cfg.eval.ds_filename}/*.pthru"
         filelist = glob.glob(pthru_glob)
         print(f"num_files={len(filelist)} matching {pthru_glob}")
         maybe_ok = 0
