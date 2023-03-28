@@ -26,7 +26,6 @@ eval:
   play_games: true
   which_games: ftwc   # gata or ftwc
 #  root_dir: /ssd2tb/twdata/
-  pthru_data_dir: /home1/guntis/work/0_magd3/tw13/twagents/playthrus #/home1/guntis/work/0_magd3/tw13/twGPT/tmp
   #/ssd2tb/twdata/ftwc/playthru_data
   #/home1/guntis/work/0_magd3/tw13/twagents/playthrus
 #  games_dir: ${.root_dir}/games_${.which_games}/${.which_set}/

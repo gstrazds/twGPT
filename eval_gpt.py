@@ -308,7 +308,7 @@ def main(cfg: DictConfig) -> None:
         n_wins = 0
         n_losses = 0
         n_stuck = 0
-        pthru_glob = f"{cfg.eval.pthru_data_dir}/{cfg.eval.which_set}/*.pthru"
+        pthru_glob = f"{cfg.eval.pthru_data_dir}/{cfg.eval.df_filename}/*.pthru"
         filelist = glob.glob(pthru_glob)
         print(f"num_files={len(filelist)} matching {pthru_glob}")
         maybe_ok = 0
@@ -316,6 +316,10 @@ def main(cfg: DictConfig) -> None:
         total_played = 0
         n_steps_dict = {}
         for i, filepath in enumerate(filelist[:]):
+        # for i, rec in enumerate(dataloader):
+        #     gid = rec['gid']
+        #     print(f"gid={gid}")
+        #     filepath = cfg.eval.
             total_played += 1
             print(f"[{i}] ------------ PLAYING: {filepath}")
             gn = pathlib.Path(filepath).stem

@@ -702,8 +702,9 @@ class PlaythroughDataModule(LightningDataModule):
             # (maybe tokenizers=0.10.0rc1 impl of WordLevel model has a bug?
             # assert self.vocab_size == len(self.vocab_dict)
         # TODO: get dataset length after loading data and use it to compute final_tokens
-        if self.dataset_dir:
+        if self.dataset_dir:  # load from .json array of dicts (a common format for huggingface datasets)
             self.tokenized_ds = self.load_from_textds(self.dataset_dir, splits_list=self.splits_list, no_kg=self.ignore_kg)
+            eval_dataset = None
             for splitkey in self.tokenized_ds:
                 encoded_data_ids = np.concatenate(self.tokenized_ds[splitkey]['input_ids'][:])
                 # print(encoded_data_ids[:100])
@@ -727,11 +728,16 @@ class PlaythroughDataModule(LightningDataModule):
                                                          span_filtering=PlaythroughDataset.TARGET_CMD_PROMPTS,
                                                          batch_size=self.batch_size,
                                                          prompt_extra_len=0)  # DO NOT include the cmd after the prompt
-                    #if 'valid' in splitkey:
-                    self.validation_dataset = eval_dataset
+                    if 'valid' in splitkey:
+                        print(f"NOTE: using {splitkey} dataset as .validaton_dataset")
+                        self.validation_dataset = eval_dataset
+                    else:
+                        print(f"NOTE: loaded {splitkey} -> eval_dataset. (might discard or use as .validation_dataset...")
+            if eval_dataset and not self.validation_dataset:  # (if only a test split has been loaded)
+                print("NOTE: using previously loaded eval_dataset as .validation_dataset")
+                self.validation_dataset = eval_dataset        # maybe use the test split as self.validation_dataset
 
-
-        else:
+        else:   # load directly from .pthru text files
             encoded_data = self.read_and_encode(self.data_file)
             print("PlaythroughDataModule.prepare_data: ", len(encoded_data.ids))
             eval_encoded = self.read_and_encode(self.val_file) if self.val_file else None
