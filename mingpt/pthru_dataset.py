@@ -1,7 +1,9 @@
 #!/usr/bin/env python
 # coding: utf-8
 from typing import List, Dict, Optional, Any, Tuple, Iterable, Mapping
+import os
 import logging
+import json
 import random
 import numpy as np
 import torch
@@ -596,6 +598,38 @@ class PlaythroughDataset(Dataset):
         return xx_pad, yy_pad, cmd_start_pos, cmd_len
 
 
+def _check_skills_list(filepath):
+    print(filepath)
+    with open(filepath, "r", encoding="utf-8") as f:
+        first_line = f.readline()
+        while not first_line:
+            first_line = f.readline()
+        first_rec = json.loads(first_line)
+        if first_rec['skills']:
+            skills_list = first_rec['skills']
+            if len(skills_list) == 1 and ',' in skills_list[0]:
+                print(f"NEED TO FIX skills list in {filepath} {skills_list}")
+                return False
+    return True
+
+
+def _fix_skills_list(filepath):
+    with open(filepath, "r", encoding="utf-8") as f:
+        with open(filepath + ".fixed", "w", encoding="utf-8") as fout:
+            json_lines = f.readlines()
+            for line in json_lines:
+                line = line.strip()
+                if line:  # filter out any empty lines
+                    json_rec = json.loads(line)
+                    if 'skills' in json_rec and len(json_rec['skills']) == 1:
+                        json_rec['skills'] = [skill for skill in json_rec['skills'][0].split(',')]  # split the list of skills
+                    fout.write(json.dumps(json_rec))
+                    fout.write("\n")
+    os.rename(filepath, filepath+".bad_skills")
+    os.rename(filepath+".fixed", filepath)
+    return True
+
+
 class PlaythroughDataModule(LightningDataModule):
     name = "ftwc_pthru"
 
@@ -674,6 +708,10 @@ class PlaythroughDataModule(LightningDataModule):
             splits_list = ['train', 'valid', 'test']
         dsfiles = {_normalize_splitname(split): f"{dirpath}/{split}.textds" for split in splits_list}
         print(f"load_from_textds({_text_field}, {dsfiles})")
+
+        for filepath in dsfiles.values():
+            if not _check_skills_list(filepath):
+                _fix_skills_list(filepath)
 
         _dataset = load_dataset('json', data_files=dsfiles)        # ,download_mode='force_redownload')
         if self.max_pthru_steps and self.max_pthru_steps > 0:
