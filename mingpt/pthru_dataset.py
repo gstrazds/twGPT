@@ -648,6 +648,7 @@ class PlaythroughDataModule(LightningDataModule):
         eval_filtering = PlaythroughDataset.TARGET_CMD_TOKENS,
         ignore_kg = False,
         max_pthru_steps = MAX_PTHRU_STEPS,
+        filter_out_skills = None,
         *args,
         **kwargs,
     ):
@@ -679,6 +680,7 @@ class PlaythroughDataModule(LightningDataModule):
         self.eval_filtering = eval_filtering
         self.ignore_kg = ignore_kg
         self.max_pthru_steps = max_pthru_steps
+        self.filter_out_skills = filter_out_skills
 
     def read_and_encode(self, filepath):
         with open(filepath, 'r') as file:
@@ -715,8 +717,13 @@ class PlaythroughDataModule(LightningDataModule):
 
         _dataset = load_dataset('json', data_files=dsfiles)        # ,download_mode='force_redownload')
         if self.max_pthru_steps and self.max_pthru_steps > 0:
-            for splitname in _dataset:
+            for splitname in _dataset:  # don't include records that have trajectories longer than than max_pthru_steps
                 _dataset[splitname] = _dataset[splitname].filter(lambda rec: rec['numsteps'] <= self.max_pthru_steps)
+        if self.filter_out_skills:
+            exclude_skills = set(self.filter_out_skills)  # don't include records that list one or more of these skills
+            for splitname in _dataset:
+                _dataset[splitname] = _dataset[splitname].filter(lambda rec: not bool(set(rec['skills']) & exclude_skills))
+
         tokenized_ds = _dataset.map(_tokenize_text, batched=True, load_from_cache_file=False)
         tokenized_ds.set_format(type='numpy', columns=['input_ids'])
         print(tokenized_ds)

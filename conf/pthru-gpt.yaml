@@ -36,8 +36,9 @@ data:
   num_workers: 0  # > 0 when using ddp and multiple gpus
   train_filtering: cmd_prompts  # cmd_tokens, cmd_prompts
   eval_filtering: cmd_prompts  #${data.train_filtering}
-  ignore_kg: false
+  ignore_kg: false  # if true: use alternate (.othru) data - not including info about things agent has seen/knows
   max_pthru_steps: 30
+  filter_out_skills: null # a list of skill types to exclude from the dataset for training / eval
 
 model:
   arch: gpt
