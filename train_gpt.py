@@ -53,7 +53,9 @@ def train_gpt(cfg: DictConfig) -> None:
             train_filtering=cfg.data.train_filtering,
             eval_filtering=cfg.data.eval_filtering,
             ignore_kg=cfg.data.ignore_kg,
-            max_pthru_steps=cfg.data.max_pthru_steps, )
+            max_pthru_steps=cfg.data.max_pthru_steps,
+            filter_out_skills=cfg.data.filter_out_skills,
+        )
     else:
         _datamodule = CharDataModule(
             data_file=cfg.data.data_file,

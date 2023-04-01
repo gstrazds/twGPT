@@ -717,10 +717,12 @@ class PlaythroughDataModule(LightningDataModule):
 
         _dataset = load_dataset('json', data_files=dsfiles)        # ,download_mode='force_redownload')
         if self.max_pthru_steps and self.max_pthru_steps > 0:
+            print("MAX_PTHRU_STEPS:", self.max_pthru_steps)
             for splitname in _dataset:  # don't include records that have trajectories longer than than max_pthru_steps
                 _dataset[splitname] = _dataset[splitname].filter(lambda rec: rec['numsteps'] <= self.max_pthru_steps)
         if self.filter_out_skills:
             exclude_skills = set(self.filter_out_skills)  # don't include records that list one or more of these skills
+            print("FILTERING OUT SKILLS:", exclude_skills)
             for splitname in _dataset:
                 _dataset[splitname] = _dataset[splitname].filter(lambda rec: not bool(set(rec['skills']) & exclude_skills))
 
