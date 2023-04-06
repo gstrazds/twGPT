@@ -308,7 +308,7 @@ def main(cfg: DictConfig) -> None:
     if cfg.eval.play_games:
         # for each .pthru file in cfg.eval.pthru_data_dir, play the corresponding game from cfg.eval.games_dir
         # NOTE: the .pthru data is not used, except to select a game name using pathlib.Path(filepath).stem
-        eval_gameids = set(dataset['game'])
+        eval_gameids = set(_datamodule.tokenized_ds[cfg.eval.which_set]['game'])
         print("#---- NUMBER OF GAMES in eval set:", len(eval_gameids))
         wins = []
         losses = []
@@ -317,7 +317,7 @@ def main(cfg: DictConfig) -> None:
         n_losses = 0
         n_stuck = 0
         # pthru_glob = f"{cfg.eval.pthru_data_dir}/{cfg.eval.ds_filename}/*.pthru"
-        pthru_glob = f"{cfg.eval.games_dir.which_set}/*.json"
+        pthru_glob = f"{cfg.eval.games_dir}/{cfg.eval.which_set}/*.json"
         filelist = glob.glob(pthru_glob)
         print(f"num_files={len(filelist)} matching {pthru_glob}")
         maybe_ok = 0
