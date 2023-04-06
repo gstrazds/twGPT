@@ -20,25 +20,32 @@ model:
 #  block_size: 128  # aka seq_len or 'attention window size'
   block_size: 1024  # spatial extent of the model for its context
 #  n_layers: 8
-  n_layers: 8
+  n_layers: 13
 #  n_heads: 8
   n_heads: 8
-  d_embd: 768
+  d_embd: 512
 
 trainer:
   batch_size: 8
-  max_epochs: 8
-  learning_rate: 6e-4
+  max_epochs: 12
+  learning_rate: 3e-4
   patience: 30
-  save_top_k: 20
+  save_top_k: 25
   val_check_interval: 0.1
 #  limit_val_batches: 10000  # this should cover all of our current validation set (but maybe not the test set?)
+  decay_multiplier: 5
 
 eval:
   play_games: false
-  which_games: gata   # gata or ftwc
+  which_games: ftwc   # gata or ftwc
   which_set: valid    # valid or test
   root_dir: /work2/gstrazds/twdata/${eval.which_games}  # /ssd2tb/twdata
   #ds_filename: gata_${.which_set}  #defaults to which_set (which is correct for ftwc, but not for gata)
-  checkpoint: ${cwd_path}/saved_models/instrgpt-epoch=2-step=0-train_loss_step=0.024-val_loss=0.574.ckpt
-  # instrgpt-epoch=2-step=0-train_loss_step=0.024-val_loss=0.574.ckpt   # 91.97% win:72/124 lost:22 (w56/222)
+  #checkpoint: ${cwd_path}/saved_models/mingpt:gpt:pthru-epoch=3-step=3612-val_acc=0.695-val_loss=0.405.ckpt
+  #checkpoint: ${cwd_path}/saved_models/mingpt:gpt:pthru-epoch=4-step=5099-val_acc=0.702-val_loss=0.410.ckpt
+  #checkpoint: ${cwd_path}/saved_models/mingpt:gpt:pthru-epoch=5-step=5844-val_acc=0.721-val_loss=0.426.ckpt
+  #checkpoint: ${cwd_path}/saved_models/mingpt:gpt:pthru-epoch=7-step=8394-val_acc=0.584-val_loss=0.463.ckpt
+  #checkpoint: ${cwd_path}/saved_models/mingpt:gpt:pthru-epoch=11-step=12222-val_acc=0.803-val_loss=0.491.ckpt
+  checkpoint: ${cwd_path}/saved_models/2023-04-02-16-44-0/mingpt:gpt:pthru-epoch=6-step=6695-val_acc=0.822-val_loss=0.411.ckpt
+                #  mingpt:gpt:pthru-epoch=5-step=5526-val_acc=0.824-val_loss=0.371.ckpt
+  # ---  instrgpt-epoch=2-step=0-train_loss_step=0.024-val_loss=0.574.ckpt   # 91.97% win:72/124 lost:22 (w56/222)
