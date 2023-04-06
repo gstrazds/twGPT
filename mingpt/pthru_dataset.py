@@ -828,6 +828,9 @@ class PlaythroughDataModule(LightningDataModule):
     def val_dataloader(self):
         if not self.validation_dataset:
             return None
+            # validation_dataset = self.train_dataset   # hacked this to allow for a sanity check
+        else:
+            validation_dataset = self.validation_dataset
 
         # if self.validation_dataset.span_filtering == PlaythroughDataset.TARGET_CMD_PROMPTS:
         #     batch_size = 1
@@ -835,13 +838,13 @@ class PlaythroughDataModule(LightningDataModule):
         #     batch_size = self.batch_size
 
         loader = DataLoader(
-            self.validation_dataset,
-            batch_size=self.validation_dataset.batch_size,
+            validation_dataset,
+            batch_size=validation_dataset.batch_size,
             shuffle=False,
             num_workers=self.num_workers,
             drop_last=False,
             pin_memory=True,
             persistent_workers=True if self.num_workers > 0 else False,
-            collate_fn=lambda batch: self.validation_dataset.pad_collate_for_eval(batch)  #, align_cmds=False)
+            collate_fn=lambda batch: validation_dataset.pad_collate_for_eval(batch)  #, align_cmds=False)
         )
         return loader

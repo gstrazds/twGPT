@@ -274,10 +274,13 @@ def main(cfg: DictConfig) -> None:
     tokenizer = _datamodule.tokenizer
 
     # dynamically set some config/hparam values (ensures that they get saved with results of each run)
-    valid_dataset = _datamodule.validation_dataset
-    GPTLitModule.adjust_cfg_vocab(cfg, valid_dataset)
+    dataset = _datamodule.validation_dataset
+    # if dataset is None:  # uncomment to allow (as a sanity check) eval against training dataset
+    #     if 'train' in cfg.eval.ds_filename:
+    #          dataset = _datamodule.train_dataset
+    GPTLitModule.adjust_cfg_vocab(cfg, dataset)
     # cfg.model.vocab_size = _datamodule.vocab_size
-    # cfg.trainer.decay_tokens = 2 * len(train_dataset) * train_dataset.block_size
+    # cfg.trainer.decay_tokens = 2 * len(dataset) * dataset.block_size
 
     pl_model = GPTLitModule.load_from_checkpoint(checkpoint_path=cfg.eval.checkpoint)
     pl_model.set_cmd_markers(_datamodule.cmd_start_marker, _datamodule.cmd_end_marker)
@@ -293,8 +296,10 @@ def main(cfg: DictConfig) -> None:
     # print(f"Training dataset length={len(_datamodule.train_dataset)} (raw:{len(_datamodule.train_dataset.data)})")
     # print(f"Validation dataset length={len(_datamodule.validation_dataset)} (raw:{len(_datamodule.validation_dataset.data)})")
     #_datamodule.train_dataset.print_info("train_dataset")
-    _datamodule.validation_dataset.print_info("validation_dataset")
-    dataset = _datamodule.validation_dataset
+    dataset.print_info("validation_dataset")
+    if _datamodule.validation_dataset is None and dataset is not None:  # to allow eval with train_dataset (see above)
+        print("WARNING: explicitly setting _datamodule.validation_dataset=", dataset)
+        _datamodule.validation_dataset = dataset  # We do this so that _datamodule._val_dataloader() will work
     dataloader = _datamodule.val_dataloader()
     if dataset.span_filtering == 'cmd_prompts' and pl_model.hparams.data.eval_filtering != 'cmd_prompts':
         print("***** ADJUSTING cfg.data.eval_filtering for backward compatibility *****")
@@ -303,13 +308,16 @@ def main(cfg: DictConfig) -> None:
     if cfg.eval.play_games:
         # for each .pthru file in cfg.eval.pthru_data_dir, play the corresponding game from cfg.eval.games_dir
         # NOTE: the .pthru data is not used, except to select a game name using pathlib.Path(filepath).stem
+        eval_gameids = set(dataset['game'])
+        print("#---- NUMBER OF GAMES in eval set:", len(eval_gameids))
         wins = []
         losses = []
         loopers = []
         n_wins = 0
         n_losses = 0
         n_stuck = 0
-        pthru_glob = f"{cfg.eval.pthru_data_dir}/{cfg.eval.ds_filename}/*.pthru"
+        # pthru_glob = f"{cfg.eval.pthru_data_dir}/{cfg.eval.ds_filename}/*.pthru"
+        pthru_glob = f"{cfg.eval.games_dir.which_set}/*.json"
         filelist = glob.glob(pthru_glob)
         print(f"num_files={len(filelist)} matching {pthru_glob}")
         maybe_ok = 0
@@ -321,9 +329,12 @@ def main(cfg: DictConfig) -> None:
         #     gid = rec['gid']
         #     print(f"gid={gid}")
         #     filepath = cfg.eval.
-            total_played += 1
-            print(f"[{i}] ------------ PLAYING: {filepath}")
             gn = pathlib.Path(filepath).stem
+            if gn not in eval_gameids:
+                print("(SKIPPING)", gn, filepath)
+                continue
+            print(f"[{total_played}]({i}) ------------ PLAYING: {filepath}")
+            total_played += 1
             num_steps, won, lost, stuck = play_game(gn, pl_model, tokenizer, gamedir=f"{cfg.eval.games_dir}")
             if won:
                 n_steps = won
