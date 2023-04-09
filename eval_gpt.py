@@ -268,6 +268,7 @@ def main(cfg: DictConfig) -> None:
         ignore_kg=cfg.data.ignore_kg,
         max_pthru_steps=cfg.data.max_pthru_steps,
         filter_out_skills=cfg.data.filter_out_skills,
+        which_games=cfg.eval.which_games
     )
 
     _datamodule.prepare_data()

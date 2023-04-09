@@ -644,11 +644,12 @@ class PlaythroughDataModule(LightningDataModule):
         seed: int = 42,
         batch_size: int = 192,
         block_size: int = 128,
-        train_filtering = None,
-        eval_filtering = PlaythroughDataset.TARGET_CMD_TOKENS,
-        ignore_kg = False,
-        max_pthru_steps = MAX_PTHRU_STEPS,
-        filter_out_skills = None,
+        train_filtering=None,
+        eval_filtering=PlaythroughDataset.TARGET_CMD_TOKENS,
+        ignore_kg=False,
+        max_pthru_steps=MAX_PTHRU_STEPS,
+        filter_out_skills=None,
+        which_games=None,   # 'ftwc' or 'gata' or None(=both ftwc + gata)
         *args,
         **kwargs,
     ):
@@ -681,6 +682,7 @@ class PlaythroughDataModule(LightningDataModule):
         self.ignore_kg = ignore_kg
         self.max_pthru_steps = max_pthru_steps
         self.filter_out_skills = filter_out_skills
+        self.which_games = which_games
 
     def read_and_encode(self, filepath):
         with open(filepath, 'r') as file:
@@ -725,6 +727,11 @@ class PlaythroughDataModule(LightningDataModule):
             print("FILTERING OUT SKILLS:", exclude_skills)
             for splitname in _dataset:
                 _dataset[splitname] = _dataset[splitname].filter(lambda rec: not bool(set(rec['skills']) & exclude_skills))
+        if self.which_games and self.which_games != 'combined':
+            games_source = self.which_games
+            print("FILTERING TO INCLUDE ONLY GAMES FROM", games_source)
+            for splitname in _dataset:
+                _dataset[splitname] = _dataset[splitname].filter(lambda rec: rec['source'] == games_source)
 
         tokenized_ds = _dataset.map(_tokenize_text, batched=True, load_from_cache_file=False)
         tokenized_ds.set_format(type='numpy', columns=['input_ids'])
@@ -848,3 +855,15 @@ class PlaythroughDataModule(LightningDataModule):
             collate_fn=lambda batch: validation_dataset.pad_collate_for_eval(batch)  #, align_cmds=False)
         )
         return loader
+
+    def list_cmds(self, split='valid'):
+        """ returns an iterator of lists of commands (as text strings) """
+
+        assert self.tokenized_ds, "Only implemented for datasets loaded with load_from_textds()"
+        tok_ds = self.tokenized_ds[split]
+        list_of_lists = []
+        for idx in range(len(tok_ds)):
+            cmds_list = tok_ds['text'][idx].split(']<<<')
+            list_of_lists.append(list(map(lambda s: s.split('>>>[')[-1].strip(), cmds_list[:-1])))
+        #print(list_of_lists[-1])
+        return list_of_lists

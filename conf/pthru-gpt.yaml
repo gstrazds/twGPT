@@ -39,6 +39,7 @@ data:
   ignore_kg: false  # if true: use alternate (.othru) data - not including info about things agent has seen/knows
   max_pthru_steps: 30
   filter_out_skills: null # a list of skill types to exclude from the dataset for training / eval
+  which_games: combined  # ftwc, gata, or combined = use all available
 
 model:
   arch: gpt
@@ -89,7 +90,7 @@ eval:
   checkpoint: ${cwd_path}/saved_models/2022-05-18/mingpt:gpt:pthru-epoch=2-step=463-val_acc=0.659-val_loss=0.877.ckpt #TOK_ACC = 75.57 CMD_ACC = 68.14
 
   play_games: false
-  which_games: gata   # gata or ftwc
+  which_games: gata   #  gata, ftwc or None = gata+ftwc
   which_set: valid    # valid or test
   ds_filename: ${.which_set}   # to load just a specific gata dataset: gata_${.which_set}
   root_dir: /ssd2tb/twdata/${eval.which_games}  # /ssd2tb/twdata/ftwc
