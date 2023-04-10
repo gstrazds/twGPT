@@ -149,8 +149,6 @@ def play_game(gamename, pl_module, tokenizer, gamedir=TW_TRAINING_DIR, max_steps
     #                                                   passive_oracle_mode=True,
     #                                                   use_internal_names=use_internal_names)
     twenv, _obs, _infos = start_twenv_for_playthrough([_gamefile],
-                                                      #raw_obs_feedback=False,  # simplify obs and feedback text
-                                                      passive_oracle_mode=True,
                                                       use_internal_names=use_internal_names)
 
     agent_kg = twenv.tw_oracle.gi.kg
@@ -313,7 +311,7 @@ def main(cfg: DictConfig) -> None:
     if cfg.eval.play_games:
         # for each .pthru in the dataset, play the corresponding game from cfg.eval.games_dir
         # NOTE: the .pthru data is not used, except to select a game name with matching pathlib.Path(filepath).stem
-        eval_ds = _datamodule.tokenized_ds[cfg.eval.which_set]
+        eval_ds = _datamodule.tokenized_ds[cfg.eval.ds_filename]
         eval_gameids = set(eval_ds['game'])
         print(f"#---- play_games({cfg.eval.ds_filename}) NUMBER OF GAMES in eval set: {len(eval_gameids)}")
         games_glob = f"{cfg.eval.games_dir}/*.json"
@@ -338,7 +336,7 @@ def main(cfg: DictConfig) -> None:
             gn = eval_ds['game'][idx]
             print(f"[{total_played}]({idx}) ------------ PLAYING: {gn}")
             total_played += 1
-            cmds_list = _datamodule.list_cmds(idx, split=cfg.eval.which_set)
+            cmds_list = _datamodule.list_cmds(idx, split=cfg.eval.ds_filename)
             print(f"#---- [{idx}] play_game({gn}) cmds_list={cmds_list}")
             num_steps, won, lost, stuck = play_game(gn, pl_model, tokenizer, gamedir=f"{cfg.eval.games_dir}")
             if won:
