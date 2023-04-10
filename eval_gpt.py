@@ -272,7 +272,7 @@ def main(cfg: DictConfig) -> None:
     pass
 
     _datamodule = PlaythroughDataModule(
-        dataset_dir=cfg.eval.pthru_data_dir,
+        dataset_dir=cfg.data.dataset_dir,
         data_file=cfg.data.data_file,
         val_file=cfg.data.val_file,
         splits_list=[cfg.eval.ds_filename],  # =None loads all splits ['train', 'valid', 'test']
