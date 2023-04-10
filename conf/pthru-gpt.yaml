@@ -38,7 +38,8 @@ data:
   eval_filtering: cmd_prompts  #${data.train_filtering}
   ignore_kg: false  # if true: use alternate (.othru) data - not including info about things agent has seen/knows
   max_pthru_steps: 30
-  filter_out_skills: null # a list of skill types to exclude from the dataset for training / eval
+  filter_out_skills:    # null, or a list of skill types to exclude from the dataset for training / eval
+    - drop              # filter out all games that might have to deal with limited inventory capacity
   which_games: combined  # ftwc, gata, or combined = use all available
 
 model:
