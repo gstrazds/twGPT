@@ -49,6 +49,8 @@ def predict_cmd(pl_module, tokenizer, pthru_so_far: str, failed_cmds: List[str] 
         sample = False
         top_k = None
 
+    end_marker = tokenizer.convert_tokens_to_ids(CMD_END_TOKEN)
+    period_marker = tokenizer.convert_tokens_to_ids('.')
     while attempts > 0:
         attempts -= 1
         predicted = pl_module.sample_ahead(x_dev, n_samples=N_AHEAD, temperature=temp, randsampling=sample, top_k=top_k)
@@ -59,12 +61,15 @@ def predict_cmd(pl_module, tokenizer, pthru_so_far: str, failed_cmds: List[str] 
             print("****** PROMPT:", x_decoded)  # tokenizer.decode(y_predicted[max(0, len(y_predicted)-20-N_AHEAD):-N_AHEAD]))
 
         predicted_cmd = y_predicted[-N_AHEAD:]
-        end_marker = tokenizer.convert_tokens_to_ids(CMD_END_TOKEN)
         try:
             idx_ = predicted_cmd.index(end_marker)
             predicted_cmd = predicted_cmd[:idx_]
         except ValueError:
             print("end of command marker NOT FOUND")
+            if period_marker in predicted_cmd:
+                idx_ = predicted_cmd.index(period_marker)
+                print("WARNING: interpreting '.' as an end of command marker")
+                predicted_cmd = predicted_cmd[:idx_]
 
         action_str = tokenizer.decode(predicted_cmd)
         if ' - ' in action_str:
@@ -134,7 +139,7 @@ def grow_pthru_if_cmd_ok(pthru_so_far, prev_cmd, infos, reward, pthru_step):
     return pthru_so_far, False  # try a different command
 
 
-def play_game(gamename, pl_module, tokenizer, gamedir=TW_TRAINING_DIR, max_steps=45, use_internal_names=False):
+def play_game(gamename, pl_module, tokenizer, gamedir=TW_TRAINING_DIR, cmds=None, max_steps=45, use_internal_names=False):
     _gamefile = f"{gamedir}/{gamename}.z8"
     #_gamefile = f"{gamedir}/{gamename}.json"
     _dones = [0]
@@ -148,7 +153,7 @@ def play_game(gamename, pl_module, tokenizer, gamedir=TW_TRAINING_DIR, max_steps
     #                                                   raw_obs_feedback=False,  # simplify obs and feedback text
     #                                                   passive_oracle_mode=True,
     #                                                   use_internal_names=use_internal_names)
-    twenv, _obs, _infos = start_twenv_for_playthrough([_gamefile],
+    twenv, _obs, _infos = start_twenv_for_playthrough([_gamefile], pthru_cmds=cmds,
                                                       use_internal_names=use_internal_names)
 
     agent_kg = twenv.tw_oracle.gi.kg
@@ -338,7 +343,7 @@ def main(cfg: DictConfig) -> None:
             total_played += 1
             cmds_list = _datamodule.list_cmds(idx, split=cfg.eval.ds_filename)
             print(f"#---- [{idx}] play_game({gn}) cmds_list={cmds_list}")
-            num_steps, won, lost, stuck = play_game(gn, pl_model, tokenizer, gamedir=f"{cfg.eval.games_dir}")
+            num_steps, won, lost, stuck = play_game(gn, pl_model, tokenizer, gamedir=f"{cfg.eval.games_dir}", cmds=cmds_list)
             if won:
                 n_steps = won
                 wins.append((n_steps,gn))
