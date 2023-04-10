@@ -144,8 +144,12 @@ def play_game(gamename, pl_module, tokenizer, gamedir=TW_TRAINING_DIR, max_steps
     next_cmds = [GAME_START_CMD]
     attempted_cmds = []  # cmds we've already tried for a given step that DIDN'T do anything
 
+    # twenv, _obs, _infos = start_gym_for_playthrough([_gamefile],
+    #                                                   raw_obs_feedback=False,  # simplify obs and feedback text
+    #                                                   passive_oracle_mode=True,
+    #                                                   use_internal_names=use_internal_names)
     twenv, _obs, _infos = start_twenv_for_playthrough([_gamefile],
-                                                      raw_obs_feedback=False,  # simplify obs and feedback text
+                                                      #raw_obs_feedback=False,  # simplify obs and feedback text
                                                       passive_oracle_mode=True,
                                                       use_internal_names=use_internal_names)
 
@@ -175,7 +179,7 @@ def play_game(gamename, pl_module, tokenizer, gamedir=TW_TRAINING_DIR, max_steps
     lost = None
     stuck = None
     while not all(_dones) and num_steps < max_steps:
-        # _obs, _rewards, _dones, _infos = step_game_for_playthrough(gymenv, next_cmds)
+        # _obs, _rewards, _dones, _infos = step_gym_for_playthrough(gymenv, next_cmds)
         _obs, _rewards, _dones, _infos = step_twenv_for_playthrough(twenv, next_cmds, use_internal_names=False)
         playthru_step_data = playthrough_step_to_json(next_cmds, _dones, _infos, _obs, _rewards, num_steps,
                                                                                         use_internal_names=False)
@@ -307,39 +311,39 @@ def main(cfg: DictConfig) -> None:
         pl_model.hparams.data.eval_filtering = 'cmd_prompts'
         pl_model.hparams.data.eval_filtering = 'cmd_prompts'
     if cfg.eval.play_games:
-        # for each .pthru file in cfg.eval.pthru_data_dir, play the corresponding game from cfg.eval.games_dir
-        # NOTE: the .pthru data is not used, except to select a game name using pathlib.Path(filepath).stem
-        eval_gameids = set(_datamodule.tokenized_ds[cfg.eval.ds_filename]['game'])
-        print("#---- NUMBER OF GAMES in eval set:", len(eval_gameids))
+        # for each .pthru in the dataset, play the corresponding game from cfg.eval.games_dir
+        # NOTE: the .pthru data is not used, except to select a game name with matching pathlib.Path(filepath).stem
+        eval_ds = _datamodule.tokenized_ds[cfg.eval.which_set]
+        eval_gameids = set(eval_ds['game'])
+        print(f"#---- play_games({cfg.eval.ds_filename}) NUMBER OF GAMES in eval set: {len(eval_gameids)}")
+        games_glob = f"{cfg.eval.games_dir}/*.json"
+        filelist = glob.glob(games_glob)
+        print(f"#---- play_games({cfg.eval.ds_filename}) NUMBER OF FILES matching {games_glob}: {len(filelist)} ")
+        file_stems = set(map(lambda fp: pathlib.Path(fp).stem, filelist))
+        gameids_for_eval = eval_gameids.intersection(file_stems)
+        print(f"#---- play_games({cfg.eval.ds_filename}) will eval {len(gameids_for_eval)} GAMES")
         wins = []
         losses = []
         loopers = []
         n_wins = 0
         n_losses = 0
         n_stuck = 0
-        # pthru_glob = f"{cfg.eval.pthru_data_dir}/{cfg.eval.ds_filename}/*.pthru"
-        pthru_glob = f"{cfg.eval.games_dir}/*.json"
-        filelist = glob.glob(pthru_glob)
-        print(f"num_files={len(filelist)} matching {pthru_glob}")
+
         maybe_ok = 0
         num_successful = 0
         total_played = 0
         n_steps_dict = {}
-        for i, filepath in enumerate(filelist[:]):
-        # for i, rec in enumerate(dataloader):
-        #     gid = rec['gid']
-        #     print(f"gid={gid}")
-        #     filepath = cfg.eval.
-            gn = pathlib.Path(filepath).stem
-            if gn not in eval_gameids:
-                print("(SKIPPING)", gn, filepath)
-                continue
-            print(f"[{total_played}]({i}) ------------ PLAYING: {filepath}")
+        #for i, filepath in enumerate(filelist[:]):
+        for idx in range(len(eval_ds)):
+            gn = eval_ds['game'][idx]
+            print(f"[{total_played}]({idx}) ------------ PLAYING: {gn}")
             total_played += 1
+            cmds_list = _datamodule.list_cmds(idx, split=cfg.eval.which_set)
+            print(f"#---- [{idx}] play_game({gn}) cmds_list={cmds_list}")
             num_steps, won, lost, stuck = play_game(gn, pl_model, tokenizer, gamedir=f"{cfg.eval.games_dir}")
             if won:
                 n_steps = won
-                wins.append((n_steps, gn))
+                wins.append((n_steps,gn))
                 n_wins += 1
             elif lost:
                 n_steps = lost
@@ -349,7 +353,7 @@ def main(cfg: DictConfig) -> None:
                 n_steps = stuck
                 loopers.append((n_steps,gn))
                 n_stuck += 1
-            print(f"[{i}] n_steps={n_steps} \t---- {gn} ")
+            print(f"[{idx}] n_steps={n_steps} \t---- {gn} ")
             if num_steps < 45:  # n_steps is not None and n_steps < 45:
                 maybe_ok += 1
             if won:

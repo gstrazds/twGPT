@@ -856,14 +856,26 @@ class PlaythroughDataModule(LightningDataModule):
         )
         return loader
 
-    def list_cmds(self, split='valid'):
-        """ returns an iterator of lists of commands (as text strings) """
+    def get_cmd_lists(self, split='valid', data_column='text'):
+        # data_column='text' or 'text0'  (both equivalent: produce identical list of comands)
+        """ returns a list of list of commands (as text strings) """
 
         assert self.tokenized_ds, "Only implemented for datasets loaded with load_from_textds()"
         tok_ds = self.tokenized_ds[split]
         list_of_lists = []
         for idx in range(len(tok_ds)):
-            cmds_list = tok_ds['text'][idx].split(']<<<')
+            cmds_list = tok_ds[data_column][idx].split(']<<<')
             list_of_lists.append(list(map(lambda s: s.split('>>>[')[-1].strip(), cmds_list[:-1])))
         #print(list_of_lists[-1])
         return list_of_lists
+
+    def list_cmds(self, idx, split='valid', data_column='text'):
+        # data_column='text' or 'text0'  (both equivalent: produce identical list of comands)
+        """ returns a list of list of commands (as text strings) """
+
+        assert self.tokenized_ds, "Only implemented for datasets loaded with load_from_textds()"
+        tok_ds = self.tokenized_ds[split]
+        data_rec = tok_ds[data_column][idx]
+        cmds_list = data_rec.split(']<<<')
+        cmds_list = list(map(lambda s: s.split('>>>[')[-1].strip(), cmds_list[:-1]))
+        return cmds_list
