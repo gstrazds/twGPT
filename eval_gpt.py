@@ -12,13 +12,13 @@ from omegaconf import OmegaConf, DictConfig
 import torch
 import numpy as np
 
-import pytorch_lightning as pl
 from pytorch_lightning import seed_everything
 from pytorch_lightning.utilities import rank_zero_info
 
 from twutils.playthroughs import TW_TRAINING_DIR, CMD_START_TOKEN, CMD_END_TOKEN, GAME_START_CMD
 from twutils.playthroughs import start_twenv_for_playthrough, step_twenv_for_playthrough
 from twutils.playthroughs import playthrough_step_to_json, format_playthrough_step, concat_pthru_step
+from twutils.twlogic import get_name2idmap, subst_names
 
 from mingpt.pthru_dataset import PlaythroughDataModule
 from mingpt.pl_module import GPTLitModule
@@ -84,7 +84,7 @@ def predict_cmd(pl_module, tokenizer, pthru_so_far: str, failed_cmds: List[str] 
     return action_str  # send the command to the game
 
 
-def format_step_json(agent_kg, step_json):
+def format_step_json(agent_kg, step_json, map_names2ids=None):
     # print("WIP DEBUGGGING format_step_json:", step_json)
     prev_action = step_json.get('prev_action', None)
     if prev_action and " the " in prev_action:
@@ -96,6 +96,9 @@ def format_step_json(agent_kg, step_json):
     # simplify_raw_obs_feedback=False because we start_game_for_playthrough(raw_obs_feedback=False)
     # and thus, the ConsistentFeedbackWrapper already does exactly the same thing at each game step
     outstr, pthru = format_playthrough_step(kg_descr, step_json, simplify_raw_obs_feedback=False)
+    if map_names2ids:
+        pthru = subst_names(pthru, map_names2ids)
+        outstr = subst_names(outstr, map_names2ids)
     return outstr, pthru
 
 
@@ -139,7 +142,7 @@ def grow_pthru_if_cmd_ok(pthru_so_far, prev_cmd, infos, reward, pthru_step):
     return pthru_so_far, False  # try a different command
 
 
-def play_game(gamename, pl_module, tokenizer, gamedir=TW_TRAINING_DIR, cmds=None, max_steps=45, use_internal_names=False):
+def play_game(gamename, pl_module, tokenizer, gamedir=TW_TRAINING_DIR, cmds=None, max_steps=45, using_internal_names=False):
     _gamefile = f"{gamedir}/{gamename}.z8"
     #_gamefile = f"{gamedir}/{gamename}.json"
     _dones = [0]
@@ -153,17 +156,20 @@ def play_game(gamename, pl_module, tokenizer, gamedir=TW_TRAINING_DIR, cmds=None
     #                                                   raw_obs_feedback=False,  # simplify obs and feedback text
     #                                                   passive_oracle_mode=True,
     #                                                   use_internal_names=use_internal_names)
-    twenv, _obs, _infos = start_twenv_for_playthrough([_gamefile], pthru_cmds=cmds,
-                                                      use_internal_names=use_internal_names)
+    twenv, _obs, _infos = start_twenv_for_playthrough([_gamefile], pthru_cmds=cmds)
 
+    if using_internal_names:
+        map_names2ids = get_name2idmap(twenv.tw_oracle.get_game_data())
+    else:
+        map_names2ids = None
     agent_kg = twenv.tw_oracle.gi.kg
 
     # step_json = playthrough_step_to_json(next_cmds, _dones, _infos, _obs, _rewards, num_steps)
-    playthru_step_data = playthrough_step_to_json(next_cmds, _dones, _infos, _obs, _rewards, num_steps, use_internal_names=use_internal_names)
+    playthru_step_data = playthrough_step_to_json(next_cmds, _dones, _infos, _obs, _rewards, num_steps)
     # playthru_step_data is a list of list of json dicts (with data for a single game step),
     #   one entry for each game in the batch
     step_json = playthru_step_data[0]
-    _, pthru_step = format_step_json(agent_kg, step_json)
+    _, pthru_step = format_step_json(agent_kg, step_json, map_names2ids=map_names2ids)
     print(f"WIP DEBUGGING -- initial step: {pthru_step}")
     pthru_so_far, cmd_was_ok = grow_pthru_if_cmd_ok(pthru_so_far,
                                                         GAME_START_CMD, _infos, 0, pthru_step)
@@ -174,6 +180,9 @@ def play_game(gamename, pl_module, tokenizer, gamedir=TW_TRAINING_DIR, cmds=None
         next_cmds = [None] * len(_obs)
 
     predicted_cmd = predict_cmd(pl_module, tokenizer, pthru_so_far, failed_cmds=None)
+    if using_internal_names:
+        predicted_cmd = subst_names(predicted_cmd, map_names2ids, ids2names=True)
+
     # TODO: use GT command from the eval dataloader (instead of oracle)
     print(f"Oracle: |{next_cmds[0]}|  Model: |{predicted_cmd}|")
     if True:  #if False:  # temporary, WIP debugging
@@ -183,14 +192,13 @@ def play_game(gamename, pl_module, tokenizer, gamedir=TW_TRAINING_DIR, cmds=None
     stuck = None
     while not all(_dones) and num_steps < max_steps:
         # _obs, _rewards, _dones, _infos = step_gym_for_playthrough(gymenv, next_cmds)
-        _obs, _rewards, _dones, _infos = step_twenv_for_playthrough(twenv, next_cmds, use_internal_names=False)
-        playthru_step_data = playthrough_step_to_json(next_cmds, _dones, _infos, _obs, _rewards, num_steps,
-                                                                                        use_internal_names=False)
+        _obs, _rewards, _dones, _infos = step_twenv_for_playthrough(twenv, next_cmds)
+        playthru_step_data = playthrough_step_to_json(next_cmds, _dones, _infos, _obs, _rewards, num_steps)
         #   returned list has one entry for each game in the batch
         step_json = playthru_step_data[0]
         prev_cmd = next_cmds[0]
 
-        _, pthru_step = format_step_json(agent_kg, step_json)
+        _, pthru_step = format_step_json(agent_kg, step_json, map_names2ids=map_names2ids)
         # TODO: get step_num from game engine or tw_oracle
         step_num = num_steps
         # step_num = list(step_json.keys())[0]
@@ -217,6 +225,9 @@ def play_game(gamename, pl_module, tokenizer, gamedir=TW_TRAINING_DIR, cmds=None
 
         if not _dones[0]:
             predicted_cmd = predict_cmd(pl_module, tokenizer, pthru_so_far, attempted_cmds)
+            if using_internal_names:
+                predicted_cmd = subst_names(predicted_cmd, map_names2ids, ids2names=True)
+
             if 'tw_o_step' in _infos:
                 next_cmds = _infos['tw_o_step']   # this is what the tw_oracle recommends
             else:
@@ -343,7 +354,10 @@ def main(cfg: DictConfig) -> None:
             total_played += 1
             cmds_list = _datamodule.list_cmds(idx, split=cfg.eval.ds_filename)
             print(f"#---- [{idx}] play_game({gn}) cmds_list={cmds_list}")
-            num_steps, won, lost, stuck = play_game(gn, pl_model, tokenizer, gamedir=f"{cfg.eval.games_dir}", cmds=cmds_list)
+            num_steps, won, lost, stuck = play_game(gn, pl_model, tokenizer,
+                                                    using_internal_names=cfg.data.use_internal_names,
+                                                    gamedir=f"{cfg.eval.games_dir}",
+                                                    cmds=cmds_list)
             if won:
                 n_steps = won
                 wins.append((n_steps,gn))

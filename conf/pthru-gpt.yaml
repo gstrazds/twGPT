@@ -41,6 +41,7 @@ data:
   filter_out_skills:    # null, or a list of skill types to exclude from the dataset for training / eval
     - drop              # filter out all games that might have to deal with limited inventory capacity
   which_games: combined  # ftwc, gata, or combined = use all available
+  use_internal_names: false # if true, this dataset uses single-token entity ids rather than names
 
 model:
   arch: gpt
