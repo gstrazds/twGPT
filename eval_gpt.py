@@ -1,5 +1,6 @@
 import os, sys
 import glob
+import logging
 import pathlib
 
 # import argparse
@@ -261,6 +262,25 @@ def main(cfg: DictConfig) -> None:
 
     rank_zero_info(f"original_cwd: {hydra.utils.get_original_cwd()}")
 
+    logger = None
+    if True:
+        # fh = logging.FileHandler(',', 'a')
+        # fh.setLevel(logging.DEBUG)
+        # # create console handler with a higher log level
+        # ch = logging.StreamHandler()
+        # ch.setLevel(logging.INFO)
+        # formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+        # ch.setFormatter(formatter)
+        # fh.setFormatter(formatter)
+        logger = logging.getLogger('eval_log')
+        # logger.addHandler(fh)
+        # print("ADDED logging HANDLER", fh)
+        # logger.addHandler(ch)
+        # print("ADDED logging HANDLER", ch)
+        # logger.info("SETUP LOGGING -- info() test")
+        # logger.debug("TEST DBG LOGGING -- dbg() test")
+
+
     GPTLitModule.adjust_cfg_fields(cfg)
     # cfg.cwd_path = hydra.utils.to_absolute_path(cfg.cwd_path)
 
@@ -270,6 +290,8 @@ def main(cfg: DictConfig) -> None:
     start_time = datetime.datetime.now()
     rank_zero_info(f"======================================= {__file__} - Start time: {start_time}\n{os.getcwd()}\n")
     pass
+    if logger:
+        logger.info(f"======================================= {__file__} - Start time: {start_time}\n{os.getcwd()}\n")
 
     _datamodule = PlaythroughDataModule(
         dataset_dir=cfg.data.dataset_dir,
@@ -377,6 +399,8 @@ def main(cfg: DictConfig) -> None:
                 num_successful += 1
             n_steps_dict[gn] = (num_steps, n_steps, won is not None, lost is not None, stuck is not None)
         print(f"PLAYED:{total_played} won:{n_wins} lost:{n_losses} stuck:{n_stuck}  (success={num_successful} maybe_ok={maybe_ok})")
+        if logger:
+            logger.log(f"PLAYED:{total_played} won:{n_wins} lost:{n_losses} stuck:{n_stuck}")
         dict_out = str(n_steps_dict)
         print(dict_out)
         with open(cfg.eval.checkpoint+".play_games.results", "a+") as f:
@@ -405,6 +429,9 @@ def main(cfg: DictConfig) -> None:
         token_acc = 0.0 if total_cmd_tokens == 0 else tokens_matched / total_cmd_tokens
         print(f"TOKENS: {tokens_matched}/{total_cmd_tokens} tok_acc={token_acc*100:02.2f} % \t" +
               f"CMDS: {full_matches}/{num_cmds} cmd_acc={cmd_acc*100:02.2f} %")
+        if logger:
+            logger.log(f"TOKENS: {tokens_matched}/{total_cmd_tokens} tok_acc={token_acc*100:02.2f} % \t" +
+                f"CMDS: {full_matches}/{num_cmds} cmd_acc={cmd_acc*100:02.2f} %")
 
         if results_dir:  # (not hasattr(trainer, "rank") or trainer.rank == 0):
             results_file = f'{results_dir}/epoch{trainer_epoch:02d}_step{trainer_global_step:04d}_{token_acc:.4f}_{cmd_acc:.4f}.txt'
@@ -414,7 +441,8 @@ def main(cfg: DictConfig) -> None:
 
         finish_time = datetime.datetime.now()
     rank_zero_info(f"================ {__file__} - Finished : {finish_time} -- elapsed: {finish_time-start_time}")
-
+    if logger:
+        logger.log(f" {__file__} - Finished : {finish_time} -- elapsed: {finish_time-start_time}")
 
 def debug_print_some_spans(dataset):
     print("eval dataset # cmd_spans =", len(dataset.cmd_spans))
