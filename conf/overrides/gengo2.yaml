@@ -2,45 +2,44 @@
 # overrides for main config from config.yaml
 
 gpus:  # set to a single int n to auto-select n gpus from all available, or to a list of gpu indices e.g. [0,1,2,3]
-#  - 0  # yaml format for a list
-#  - 1
+  - 0  # yaml format for a list
+  - 1
   - 2
   - 3
 
 data:
-  dataset_dir: /work2/gstrazds/twdata/alt.combined
+  dataset_dir: /work2/gstrazds/twdata/alt.combined   # dataset_dir: /work2/gstrazds/twdata/combined
 #  tokenizer_file: ${.dataset_dir}/combined_tokenizer.json   #ftwc_tokenizer_new.json
 #  num_workers: 0  # > 0 when using ddp and multiple gpus
 #  train_filtering: cmd_prompts  # cmd_tokens, cmd_prompts
 #  max_pthru_steps: 30
+  filter_out_skills:  # a list of skill types to exclude from the dataset for training / eval
+    - drop
+  use_internal_names: true
 
 model:
 #  block_size: 128  # aka seq_len or 'attention window size'
-  block_size: 512  # spatial extent of the model for its context
-  n_layers: 8
+  block_size: 992  # spatial extent of the model for its context
+#  n_layers: 8
+  n_layers: 15
 #  n_heads: 8
+  n_heads: 8
   d_embd: 512
 
 trainer:
-  batch_size: 32
-  max_epochs: 20
+  batch_size: 8
+  max_epochs: 12
   learning_rate: 3e-4
   patience: 30
-  save_top_k: 20
-  decay_multiplier: 10
-  #  val_check_interval: 0.2
+  save_top_k: 25
+  val_check_interval: 0.1
 #  limit_val_batches: 10000  # this should cover all of our current validation set (but maybe not the test set?)
+  decay_multiplier: 5
 
 eval:
   play_games: false
-  which_games: ftwc   # gata or ftwc
+  which_games: gata   # gata or ftwc
   which_set: valid    # valid or test
-  #ds_filename: gata_${.which_set}  #defaults to which_set (which is correct for ftwc, but not for gata)
-  root_dir: /work2/gstrazds/twdata/${eval.which_games}  # /ssd2tb/twdata/ftwc
-  pthru_data_dir: ${.root_dir}/alt.playthru_data         # /${.which_games}_${.which_set}  #mingpt-${eval.which_set}
-
-  checkpoint: ${cwd_path}/saved_models/L08-g2-m10-sweep-7/mingpt:gpt:pthru-epoch=5-step=4802-val_acc=0.741-val_loss=0.335.ckpt
-  #checkpoint: ${cwd_path}/saved_models/L12-g2-m8-sweep-8/mingpt:gpt:pthru-epoch=5-step=4802-val_acc=0.759-val_loss=0.363.ckpt
-
-# instrgpt-epoch=3-step=0-train_loss_step=0.018-val_loss=0.646.ckpt  # 90.61% 2021-01-03/10-24-18
-  # ${cwd_path}/saved_models/mingpt-epoch=3-step=0-train_loss_step=0.042-val_loss=0.442.ckpt
+  root_dir: /work2/gstrazds/twdata/${eval.which_games}  # /ssd2tb/twdata
+  ds_filename: gata_${.which_set}  #defaults to which_set (which is correct for ftwc, but not for gata)
+  checkpoint: ${cwd_path}/saved_models/2023-04-10-20-32-0/mingpt:gpt:pthru-epoch=5-step=6374-val_acc=0.844-val_loss=0.227.ckpt

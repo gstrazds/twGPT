@@ -275,7 +275,7 @@ def main(cfg: DictConfig) -> None:
         dataset_dir=cfg.data.dataset_dir,
         data_file=cfg.data.data_file,
         val_file=cfg.data.val_file,
-        splits_list=[cfg.eval.ds_filename],  # =None loads all splits ['train', 'valid', 'test']
+        splits_list=[cfg.eval.which_set],  # =None loads all splits ['train', 'valid', 'test']
         tokenizer_file=cfg.data.tokenizer_file,
         num_workers=cfg.data.num_workers,
         seed=cfg.general.random_seed,
@@ -327,15 +327,15 @@ def main(cfg: DictConfig) -> None:
     if cfg.eval.play_games:
         # for each .pthru in the dataset, play the corresponding game from cfg.eval.games_dir
         # NOTE: the .pthru data is not used, except to select a game name with matching pathlib.Path(filepath).stem
-        eval_ds = _datamodule.tokenized_ds[cfg.eval.ds_filename]
+        eval_ds = _datamodule.tokenized_ds[cfg.eval.which_set]
         eval_gameids = set(eval_ds['game'])
-        print(f"#---- play_games({cfg.eval.ds_filename}) NUMBER OF GAMES in eval set: {len(eval_gameids)}")
+        print(f"#---- play_games({cfg.eval.which_set}) NUMBER OF GAMES in eval set: {len(eval_gameids)}")
         games_glob = f"{cfg.eval.games_dir}/*.json"
         filelist = glob.glob(games_glob)
-        print(f"#---- play_games({cfg.eval.ds_filename}) NUMBER OF FILES matching {games_glob}: {len(filelist)} ")
+        print(f"#---- play_games({cfg.eval.which_set}) NUMBER OF FILES matching {games_glob}: {len(filelist)} ")
         file_stems = set(map(lambda fp: pathlib.Path(fp).stem, filelist))
         gameids_for_eval = eval_gameids.intersection(file_stems)
-        print(f"#---- play_games({cfg.eval.ds_filename}) will eval {len(gameids_for_eval)} GAMES")
+        print(f"#---- play_games({cfg.eval.which_set}) will eval {len(gameids_for_eval)} GAMES")
         wins = []
         losses = []
         loopers = []
@@ -352,7 +352,7 @@ def main(cfg: DictConfig) -> None:
             gn = eval_ds['game'][idx]
             print(f"[{total_played}]({idx}) ------------ PLAYING: {gn}")
             total_played += 1
-            cmds_list = _datamodule.list_cmds(idx, split=cfg.eval.ds_filename)
+            cmds_list = _datamodule.list_cmds(idx, split=cfg.eval.which_set)
             print(f"#---- [{idx}] play_game({gn}) cmds_list={cmds_list}")
             num_steps, won, lost, stuck = play_game(gn, pl_model, tokenizer,
                                                     using_internal_names=cfg.data.use_internal_names,

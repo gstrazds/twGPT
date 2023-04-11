@@ -140,7 +140,7 @@ class GPTLitModule(pl.LightningModule):
 
         # initially batch-first ordering: (b, t, ...)
         if batch_x.shape != batch_y.shape:
-            print(f"NEED TO convert_validation_batch(batch_x.shape={batch_x.shape} batch_y.shape={batch_y.shape} batch_cmd_pos={batch_cmd_pos} batch_cmd_len={batch_cmd_len})")
+            #print(f"NEED TO convert_validation_batch(batch_x.shape={batch_x.shape} batch_y.shape={batch_y.shape} batch_cmd_pos={batch_cmd_pos} batch_cmd_len={batch_cmd_len})")
             new_x, new_y, new_pos = convert_validation_batch(batch_x, batch_y, batch_cmd_pos, batch_cmd_len, max_block_size=self.model.block_size)
             batch_x = new_x
             y_original = batch_y   # keep a reference (for debugging)
