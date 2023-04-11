@@ -18,9 +18,9 @@ data:
 
 model:
 #  block_size: 128  # aka seq_len or 'attention window size'
-  block_size: 1024  # spatial extent of the model for its context
+  block_size: 992  # spatial extent of the model for its context
 #  n_layers: 8
-  n_layers: 13
+  n_layers: 15
 #  n_heads: 8
   n_heads: 8
   d_embd: 512
@@ -37,7 +37,7 @@ trainer:
 
 eval:
   play_games: false
-  which_games: ftwc   # gata or ftwc
+  which_games: gata   # gata or ftwc
   which_set: valid    # valid or test
   root_dir: /work2/gstrazds/twdata/${eval.which_games}  # /ssd2tb/twdata
   #ds_filename: gata_${.which_set}  #defaults to which_set (which is correct for ftwc, but not for gata)
