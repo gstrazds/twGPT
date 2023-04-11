@@ -21,13 +21,12 @@ model:
   block_size: 1024  # spatial extent of the model for its context
 #  n_layers: 8
   n_layers: 14
-#  n_heads: 8
   n_heads: 8
   d_embd: 512
 
 trainer:
   batch_size: 8
-  max_epochs: 12
+  max_epochs: 20
   learning_rate: 3e-4
   patience: 30
   save_top_k: 25
