@@ -398,9 +398,12 @@ def main(cfg: DictConfig) -> None:
             if won:
                 num_successful += 1
             n_steps_dict[gn] = (num_steps, n_steps, won is not None, lost is not None, stuck is not None)
-        print(f"PLAYED:{total_played} won:{n_wins} lost:{n_losses} stuck:{n_stuck}  (success={num_successful} maybe_ok={maybe_ok})")
+        results_str = f"PLAYED:{total_played} won:{n_wins} lost:{n_losses} stuck:{n_stuck}"
         if logger:
-            logger.info(f"PLAYED:{total_played} won:{n_wins} lost:{n_losses} stuck:{n_stuck}")
+            logger.info(results_str)
+        else:
+            print(results_str)
+        rank_zero_info(results_str)
         dict_out = str(n_steps_dict)
         print(dict_out)
         with open(cfg.eval.checkpoint+".play_games.results", "a+") as f:
@@ -427,11 +430,13 @@ def main(cfg: DictConfig) -> None:
         rank_zero_info(f"----------- eval : {eval_done_time} -- elapsed: {eval_done_time - eval_start_time}")
         cmd_acc = 0.0 if num_cmds == 0 else full_matches / num_cmds
         token_acc = 0.0 if total_cmd_tokens == 0 else tokens_matched / total_cmd_tokens
-        print(f"TOKENS: {tokens_matched}/{total_cmd_tokens} tok_acc={token_acc*100:02.2f} % \t" +
-              f"CMDS: {full_matches}/{num_cmds} cmd_acc={cmd_acc*100:02.2f} %")
+        results_str = f"TOKENS: {tokens_matched}/{total_cmd_tokens} tok_acc={token_acc*100:02.2f} % \t" +\
+            f"CMDS: {full_matches}/{num_cmds} cmd_acc={cmd_acc*100:02.2f} %"
         if logger:
-            logger.info(f"TOKENS: {tokens_matched}/{total_cmd_tokens} tok_acc={token_acc*100:02.2f} % \t" +
-                f"CMDS: {full_matches}/{num_cmds} cmd_acc={cmd_acc*100:02.2f} %")
+            logger.info(results_str)
+        else:
+            print(results_str)
+        rank_zero_info(results_str)
 
         if results_dir:  # (not hasattr(trainer, "rank") or trainer.rank == 0):
             results_file = f'{results_dir}/epoch{trainer_epoch:02d}_step{trainer_global_step:04d}_{token_acc:.4f}_{cmd_acc:.4f}.txt'
@@ -443,6 +448,8 @@ def main(cfg: DictConfig) -> None:
     rank_zero_info(f"================ {__file__} - Finished : {finish_time} -- elapsed: {finish_time-start_time}")
     if logger:
         logger.info(f" {__file__} - Finished : {finish_time} -- elapsed: {finish_time-start_time}")
+    else:
+        print(f"================ {__file__} - Finished : {finish_time} -- elapsed: {finish_time-start_time}")
 
 def debug_print_some_spans(dataset):
     print("eval dataset # cmd_spans =", len(dataset.cmd_spans))
