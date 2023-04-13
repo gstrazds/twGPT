@@ -548,7 +548,9 @@ def convert_validation_batch(batch_x, batch_y, batch_cmd_pos, batch_cmd_len, max
 
         cmd_len = batch_cmd_len[i]
         if truncate_to_max:   # max_block_size:
-            prefix_len = block_size - cmd_len
+            if batch_cmd_pos[i] < block_size-1 or block_size > batch_x.shape[1]:
+                print(f"block_size:{block_size} cmd_len:{cmd_len} max_block_size:{max_block_size} cmd_pos:{batch_cmd_pos[i]} {batch_x.shape} {new_x.shape}")
+            prefix_len = batch_x.shape[1] - cmd_len
             new_x[i, 0:prefix_len + 1] = batch_x[i, cmd_len - 1:]
             new_y[i, 0:prefix_len] = batch_x[i, cmd_len:]
             _cmd_pos = batch_cmd_pos[i] - (cmd_len - 1)

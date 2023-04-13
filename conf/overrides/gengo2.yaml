@@ -19,11 +19,14 @@ data:
 
 model:
 #  block_size: 128  # aka seq_len or 'attention window size'
-  block_size: 992  # spatial extent of the model for its context
+#  block_size: 992  # spatial extent of the model for its context
+  block_size: 1024  # spatial extent of the model for its context
 #  n_layers: 8
-  n_layers: 17
+#  n_layers: 17
+  n_layers: 15
   n_heads: 8
-  d_embd: 384
+#  d_embd: 384
+  d_embd: 512
 
 trainer:
   batch_size: 8
@@ -44,4 +47,5 @@ eval:
   #checkpoint: ${cwd_path}/saved_models/2023-04-10-20-32-0/mingpt:gpt:pthru-epoch=5-step=6374-val_acc=0.844-val_loss=0.227.ckpt
   #checkpoint: ${cwd_path}/saved_models/2023-04-11-X/mingpt:gpt:pthru-epoch=7-step=8182-val_acc=0.674-val_loss=0.220.ckpt
   #checkpoint: ${cwd_path}/saved_models/2023-04-11-X/mingpt:gpt:pthru-epoch=4-step=5205-val_acc=0.660-val_loss=0.212.ckpt
-  checkpoint: ${cwd_path}/saved_models/2023-04-11-20-00-Y/mingpt:gpt:pthru-epoch=4-step=4569-val_acc=0.758-val_loss=0.230.ckpt
+  #checkpoint: ${cwd_path}/saved_models/2023-04-11-20-00-Y/mingpt:gpt:pthru-epoch=4-step=4569-val_acc=0.758-val_loss=0.230.ckpt
+  checkpoint: ${cwd_path}/saved_models/2023-04-13-11-44/mingpt:gpt:pthru-epoch=6-step=6801-val_acc=0.842-val_loss=0.242.ckpt
