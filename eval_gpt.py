@@ -295,8 +295,8 @@ def main(cfg: DictConfig) -> None:
 
     _datamodule = PlaythroughDataModule(
         dataset_dir=cfg.data.dataset_dir,
-        data_file=cfg.data.data_file,
-        val_file=cfg.data.val_file,
+        # data_file=cfg.data.data_file,
+        # val_file=cfg.data.val_file,
         splits_list=[cfg.eval.which_set],  # =None loads all splits ['train', 'valid', 'test']
         tokenizer_file=cfg.data.tokenizer_file,
         num_workers=cfg.data.num_workers,
@@ -315,10 +315,14 @@ def main(cfg: DictConfig) -> None:
     tokenizer = _datamodule.tokenizer
 
     # dynamically set some config/hparam values (ensures that they get saved with results of each run)
-    dataset = _datamodule.validation_dataset
-    # if dataset is None:  # uncomment to allow (as a sanity check) eval against training dataset
-    #     if 'train' in cfg.eval.ds_filename:
-    #          dataset = _datamodule.train_dataset
+    if cfg.eval.which_set == 'test':
+        dataset = _datamodule.test_dataset
+    elif cfg.eval.which_set == 'train':
+        dataset = _datamodule.train_dataset
+    else:
+        assert cfg.eval.which_set == 'valid', cfg.eval.which_set
+        dataset = _datamodule.validation_dataset
+
     GPTLitModule.adjust_cfg_vocab(cfg, dataset)
     # cfg.model.vocab_size = _datamodule.vocab_size
     # cfg.trainer.decay_tokens = 2 * len(dataset) * dataset.block_size
@@ -337,11 +341,18 @@ def main(cfg: DictConfig) -> None:
     # print(f"Training dataset length={len(_datamodule.train_dataset)} (raw:{len(_datamodule.train_dataset.data)})")
     # print(f"Validation dataset length={len(_datamodule.validation_dataset)} (raw:{len(_datamodule.validation_dataset.data)})")
     #_datamodule.train_dataset.print_info("train_dataset")
-    dataset.print_info("validation_dataset")
-    if _datamodule.validation_dataset is None and dataset is not None:  # to allow eval with train_dataset (see above)
-        print("WARNING: explicitly setting _datamodule.validation_dataset=", dataset)
-        _datamodule.validation_dataset = dataset  # We do this so that _datamodule._val_dataloader() will work
-    dataloader = _datamodule.val_dataloader()
+    dataset.print_info("eval dataset")
+    if cfg.eval.which_set == 'test':
+        dataloader = _datamodule.test_dataloader()
+    elif cfg.eval.which_set == 'valid':
+        dataloader = _datamodule.test_dataloader()
+    else:
+        # assert False, f"eval_gpt with cfg.eval.which_set={cfg.eval.which_set} is not supported"
+        if _datamodule.validation_dataset is None and dataset is not None:  # a hack to allow eval with train_dataset (see above)
+            print("WARNING: explicitly setting _datamodule.validation_dataset=", dataset)
+            _datamodule.validation_dataset = dataset  # We hack this so that _datamodule._val_dataloader() will work
+            dataloader = _datamodule.val_dataloader()
+
     if dataset.span_filtering == 'cmd_prompts' and pl_model.hparams.data.eval_filtering != 'cmd_prompts':
         print("***** ADJUSTING cfg.data.eval_filtering for backward compatibility *****")
         pl_model.hparams.data.eval_filtering = 'cmd_prompts'

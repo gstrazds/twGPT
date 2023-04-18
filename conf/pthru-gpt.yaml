@@ -29,9 +29,9 @@ general:
 data:
   dataset_dir: /ssd2tb/twdata/combined
   # data_file: ${cwd_path}/tw-cooking-recipe3+take3+cut+go6-Z7L8CvEPsO53iKDg.pthru  #
-  data_file: ${cwd_path}/mingpt-training-all.pthru   #gata-train-all.pthru  #
-  val_file:  ${cwd_path}/mingpt-valid-all.pthru  # gata|mingpt-valid-all.pthru
-  test_file: ${cwd_path}/mingpt-test-all.pthru # ${cwd_path}/gata-test-all.pthru
+  #data_file: ${cwd_path}/mingpt-training-all.pthru   #gata-train-all.pthru  #
+  #val_file:  ${cwd_path}/mingpt-valid-all.pthru  # gata|mingpt-valid-all.pthru
+  #test_file: ${cwd_path}/mingpt-test-all.pthru # ${cwd_path}/gata-test-all.pthru
   tokenizer_file: ${.dataset_dir}/combined_tokenizer.json   #ftwc_tokenizer_new.json
   num_workers: 0  # > 0 when using ddp and multiple gpus
   train_filtering: cmd_prompts  # cmd_tokens, cmd_prompts

@@ -684,13 +684,13 @@ class PlaythroughDataModule(LightningDataModule):
         self.filter_out_skills = filter_out_skills
         self.which_games = which_games
 
-    def read_and_encode(self, filepath):
-        with open(filepath, 'r') as file:
-            text = file.read()
-        encoded_data = self.tokenizer.encode(text)
-        #encoded_data.ids
-        #encoded_data.tokens
-        return encoded_data
+    # def read_and_encode(self, filepath):
+    #     with open(filepath, 'r') as file:
+    #         text = file.read()
+    #     encoded_data = self.tokenizer.encode(text)
+    #     #encoded_data.ids
+    #     #encoded_data.tokens
+    #     return encoded_data
 
     def load_from_textds(self, dirpath, splits_list=None, no_kg=False):
         def _normalize_splitname(splitname):
@@ -756,6 +756,7 @@ class PlaythroughDataModule(LightningDataModule):
             # (maybe tokenizers=0.10.0rc1 impl of WordLevel model has a bug?
             # assert self.vocab_size == len(self.vocab_dict)
         # TODO: get dataset length after loading data and use it to compute final_tokens
+        assert self.dataset_dir
         if self.dataset_dir:  # load from .json array of dicts (a common format for huggingface datasets)
             self.tokenized_ds = self.load_from_textds(self.dataset_dir, splits_list=self.splits_list, no_kg=self.ignore_kg)
             eval_dataset = None
@@ -791,33 +792,32 @@ class PlaythroughDataModule(LightningDataModule):
                 print("NOTE: using previously loaded eval_dataset as .validation_dataset")
                 self.validation_dataset = eval_dataset        # maybe use the test split as self.validation_dataset
 
-        else:   # load directly from .pthru text files
-            encoded_data = self.read_and_encode(self.data_file)
-            print("PlaythroughDataModule.prepare_data: ", len(encoded_data.ids))
-            eval_encoded = self.read_and_encode(self.val_file) if self.val_file else None
-
-            self.train_dataset = PlaythroughDataset(encoded_data.ids, self.block_size,
-                                                    vocab_size=self.vocab_size,
-                                                    cmd_markers=cmd_markers,
-                                                    game_start_tok=self.game_start_tok,
-                                                    pad_tok=self.pad_tok,
-                                                    span_filtering=self.train_filtering,  #PlaythroughDataset.TARGET_CMD_TOKENS)
-                                                    batch_size=self.batch_size,
-                                                    prompt_extra_len=-10)  # include extra len after cmd (random range(0,-10)
-
-
-            if eval_encoded:
-                batch_size = self.batch_size
-                # if self.eval_filtering == PlaythroughDataset.TARGET_CMD_PROMPTS:
-                #     batch_size = 1
-                self.validation_dataset = PlaythroughDataset(eval_encoded.ids, self.block_size,
-                                                             vocab_size=self.vocab_size,
-                                                             cmd_markers=cmd_markers,
-                                                             game_start_tok=self.game_start_tok,
-                                                             pad_tok=self.pad_tok,
-                                                             span_filtering=PlaythroughDataset.TARGET_CMD_PROMPTS,
-                                                             batch_size=batch_size,
-                                                             prompt_extra_len=0)  # DO NOT include the cmd after the prompt
+        # else:   # load directly from .pthru text files
+        #     encoded_data = self.read_and_encode(self.data_file)
+        #     print("PlaythroughDataModule.prepare_data: ", len(encoded_data.ids))
+        #     eval_encoded = self.read_and_encode(self.val_file) if self.val_file else None
+        #
+        #     self.train_dataset = PlaythroughDataset(encoded_data.ids, self.block_size,
+        #                                             vocab_size=self.vocab_size,
+        #                                             cmd_markers=cmd_markers,
+        #                                             game_start_tok=self.game_start_tok,
+        #                                             pad_tok=self.pad_tok,
+        #                                             span_filtering=self.train_filtering,  #PlaythroughDataset.TARGET_CMD_TOKENS)
+        #                                             batch_size=self.batch_size,
+        #                                             prompt_extra_len=-10)  # include extra len after cmd (random range(0,-10)
+        #
+        #     if eval_encoded:
+        #         batch_size = self.batch_size
+        #         # if self.eval_filtering == PlaythroughDataset.TARGET_CMD_PROMPTS:
+        #         #     batch_size = 1
+        #         self.validation_dataset = PlaythroughDataset(eval_encoded.ids, self.block_size,
+        #                                                      vocab_size=self.vocab_size,
+        #                                                      cmd_markers=cmd_markers,
+        #                                                      game_start_tok=self.game_start_tok,
+        #                                                      pad_tok=self.pad_tok,
+        #                                                      span_filtering=PlaythroughDataset.TARGET_CMD_PROMPTS,
+        #                                                      batch_size=batch_size,
+        #                                                      prompt_extra_len=0)  # DO NOT include the cmd after the prompt
 
     def train_dataloader(self):
         loader = DataLoader(
