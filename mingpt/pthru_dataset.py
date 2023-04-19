@@ -445,10 +445,10 @@ class PlaythroughDataset(Dataset):
         return torch.tensor(x_out, dtype=torch.long), torch.tensor(y_out, dtype=torch.long), cmd_start_pos
 
     def pad_collate(self, batch):
-        # print(f"cmd_start:{self.cmd_start} cnd_end:{self.cmd_end} {len(batch)}", type(batch), type(batch[0]))  # a list of tuples, len=batch_size
-        # print(len(batch[0]))  # 3 : each tuple = (start_idx, output_len, cmd_start_idx)
+        # batch: a list of tuples, of len=batch_size
+        # print(len(batch[0]))  # 4 : each tuple = (start_idx, output_len, cmd_start_idx, cmd_len)
         max_output_len = 0
-        for _, output_len, _, _cmd_len_ in batch:
+        for _, output_len, _, _ in batch:   # determine max(batch['output_len']
             if output_len > max_output_len:
                 max_output_len = output_len
         # print(f"align_cmd=False max_output_len={max_output_len}")
@@ -458,7 +458,7 @@ class PlaythroughDataset(Dataset):
         cmd_start_pos = []
         cmd_len = []
 
-        for i, (start_idx, output_len, cmd_start_idx, _cmd_len_) in enumerate(batch):
+        for i, (start_idx, output_len, cmd_start_idx, _cmd_len) in enumerate(batch):
             # logger.info(f"[{i}] output_len={output_len} (start={start_idx} cmd_start={cmd_start_idx}")
             if not output_len > 0:
                 err_msg = f"[{i}] UNEXPECTED! output_len={output_len} (start={start_idx} cmd_start={cmd_start_idx}"
@@ -466,40 +466,43 @@ class PlaythroughDataset(Dataset):
                 assert False, err_msg
             x, y, cmd_pos = self._get_data_tensors(start_idx, output_len, max_output_len, cmd_start_idx,
                                                        pad_left=0, fill_id=self.pad_tok)
-            xx.append(x); yy.append(y); cmd_start_pos.append(cmd_pos), cmd_len.append(_cmd_len_)
+            xx.append(x)
+            yy.append(y)
+            cmd_start_pos.append(cmd_pos)
+            cmd_len.append(_cmd_len)
 
         xx_pad = pad_sequence(xx, batch_first=True, padding_value=self.pad_tok)
         yy_pad = pad_sequence(yy, batch_first=True, padding_value=self.pad_tok)
         for i in range(len(cmd_start_pos)):
             assert len(xx_pad[i]) == len(yy_pad[i]), f"[{i}] {xx_pad[i]} {yy_pad[i]}"
-            if xx_pad[i,cmd_start_pos[i]] != self.cmd_start:
+            if xx_pad[i, cmd_start_pos[i]] != self.cmd_start:
                 err_msg = f"[{i}:{cmd_start_pos[i]}] {xx_pad[i, cmd_start_pos[i]]} {xx_pad[i,:]}"
                 print(err_msg)
                 assert xx_pad[i, cmd_start_pos[i]] == self.cmd_start, err_msg
         return xx_pad, yy_pad, cmd_start_pos, cmd_len
 
     def pad_collate_for_eval(self, batch):
-        # print(f"cmd_start:{self.cmd_start} cnd_end:{self.cmd_end} {len(batch)}", type(batch), type(batch[0]))  # a list of tuples, len=batch_size
-        # print(len(batch[0]))  # 3 : each tuple = (start_idx, output_len, cmd_start_idx)
-        max_output_len, max_tail, align_pos = 0, 0, 0
+        # batch: a list of tuples, of len=batch_size
+        # print(len(batch[0]))  # 4 : each tuple = (start_idx, output_len, cmd_start_idx, cmd_len)
+        max_output_len, max_tail = 0, 0      # determine max len of any record in this batch, and max len beyond cmd_start
         for start_idx, output_len, cmd_start_idx, _cmd_len in batch:
             # print(start_idx, cmd_start_idx-start_idx, output_len )
-            cmd_pos = cmd_start_idx - start_idx
-            tail_len = _cmd_len
-            assert 0 <= cmd_pos < output_len, f"{cmd_start_idx} {start_idx} {output_len}"
+            _cmd_pos = cmd_start_idx - start_idx
+            assert 0 <= _cmd_pos < output_len, f"{cmd_start_idx} {start_idx} {output_len}"
             assert output_len <= self.block_size, f"{output_len} {self.block_size}"
-            if tail_len > max_tail:
-                max_tail = tail_len
+            _tail_len = _cmd_len
+            if _tail_len > max_tail:
+                max_tail = _tail_len
             if output_len > max_output_len:
                 max_output_len = output_len
-        # print(f"max_tail={max_tail} max_output_len={max_output_len} align_pos={align_pos}")
+        # print(f"max_tail={max_tail} max_output_len={max_output_len}")
 
         xx = []
         yy = []
         cmd_start_pos = []
         cmd_len = []
         buffer_size = max_output_len   #self.block_size
-        for i, (start_idx, output_len, cmd_start_idx, _cmd_len_) in enumerate(batch):
+        for i, (start_idx, output_len, cmd_start_idx, _cmd_len) in enumerate(batch):
             cmd_pos = cmd_start_idx - start_idx
             cmd_start_idx += 1   # point to the first token after the special [cmd_start] token
             # logger.info(f"[{i}] output_len={output_len} (start={start_idx} cmd_start={cmd_start_idx}")
@@ -520,18 +523,17 @@ class PlaythroughDataset(Dataset):
                 cmd_pos += pad_left
             else:
                 x_out = self.data[start_idx:start_idx + output_len]
-            y_out = self.data[cmd_start_idx:cmd_start_idx + _cmd_len_]
-
-            assert len(y_out) == _cmd_len_
+            y_out = self.data[cmd_start_idx:cmd_start_idx + _cmd_len]  # y is just the cmd sequence
+            assert len(y_out) == _cmd_len
             xx.append(torch.tensor(x_out, dtype=torch.long))
             yy.append(torch.tensor(y_out, dtype=torch.long))
             cmd_start_pos.append(cmd_pos)
-            cmd_len.append(_cmd_len_)
+            cmd_len.append(_cmd_len)
 
         xx_pad = pad_sequence(xx, batch_first=True, padding_value=self.pad_tok)
         yy_pad = pad_sequence(yy, batch_first=True, padding_value=self.pad_tok)
         for i in range(len(cmd_start_pos)):
-            if xx_pad[i, cmd_start_pos[i]] != self.cmd_start:
+            if xx_pad[i, cmd_start_pos[i]] != self.cmd_start:  # sanity check
                 err_msg = f"[{i}:{cmd_start_pos[i]}] {xx_pad[i, cmd_start_pos[i]]} {xx_pad[i, :]}"
                 print(err_msg)
                 assert xx_pad[i, cmd_start_pos[i]] == self.cmd_start, err_msg
@@ -561,7 +563,7 @@ class PlaythroughDataset(Dataset):
         cmd_start_pos = []
         cmd_len = []
 
-        for i, (start_idx, output_len, cmd_start_idx, _cmd_len_) in enumerate(batch):
+        for i, (start_idx, output_len, cmd_start_idx, _cmd_len) in enumerate(batch):
             # logger.info(f"[{i}] output_len={output_len} (start={start_idx} cmd_start={cmd_start_idx}")
             if not output_len > 0:
                 err_msg = f"[{i}] UNEXPECTED! output_len={output_len} (start={start_idx} cmd_start={cmd_start_idx}"
@@ -584,7 +586,7 @@ class PlaythroughDataset(Dataset):
 
             xx.append(x);
             yy.append(y);
-            cmd_start_pos.append(cmd_pos), cmd_len.append(_cmd_len_)
+            cmd_start_pos.append(cmd_pos), cmd_len.append(_cmd_len)
 
         xx_pad = pad_sequence(xx, batch_first=True, padding_value=self.pad_tok)
         yy_pad = pad_sequence(yy, batch_first=True, padding_value=self.pad_tok)
