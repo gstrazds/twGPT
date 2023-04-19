@@ -8,7 +8,7 @@ gpus:  # set to a single int n to auto-select n gpus from all available, or to a
   - 3
 
 data:
-  dataset_dir: /work2/gstrazds/twdata/alt.combined   # dataset_dir: /work2/gstrazds/twdata/combined
+  dataset_dir: /work2/gstrazds/twdata/alt_combined   # dataset_dir: /work2/gstrazds/twdata/data_combined
 #  tokenizer_file: ${.dataset_dir}/combined_tokenizer.json   #ftwc_tokenizer_new.json
 #  num_workers: 0  # > 0 when using ddp and multiple gpus
 #  train_filtering: cmd_prompts  # cmd_tokens, cmd_prompts
