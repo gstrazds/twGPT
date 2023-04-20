@@ -48,4 +48,7 @@ eval:
   #checkpoint: ${cwd_path}/saved_models/2023-04-11-X/mingpt:gpt:pthru-epoch=7-step=8182-val_acc=0.674-val_loss=0.220.ckpt
   #checkpoint: ${cwd_path}/saved_models/2023-04-11-X/mingpt:gpt:pthru-epoch=4-step=5205-val_acc=0.660-val_loss=0.212.ckpt
   #checkpoint: ${cwd_path}/saved_models/2023-04-11-20-00-Y/mingpt:gpt:pthru-epoch=4-step=4569-val_acc=0.758-val_loss=0.230.ckpt
-  checkpoint: ${cwd_path}/saved_models/2023-04-13-11-44/mingpt:gpt:pthru-epoch=6-step=6801-val_acc=0.842-val_loss=0.242.ckpt
+  #checkpoint: ${cwd_path}/saved_models/2023-04-13-11-43/mingpt:gpt:pthru-epoch=6-step=6801-val_acc=0.842-val_loss=0.242.ckpt
+  #checkpoint: ${cwd_path}/saved_models/2023-04-19-18-10-0/mingpt:gpt:pthru-epoch=4-step=5205-val_acc=0.810-val_loss=0.170.ckpt
+  #checkpoint: ${cwd_path}/saved_models/2023-04-20-11-12/mingpt:gpt:pthru-epoch=8-step=8609-val_acc=0.850-val_loss=0.234.ckpt
+  checkpoint: ${cwd_path}/saved_models/2023-04-20-11-12/mingpt:gpt:pthru-epoch=9-step=9990-val_acc=0.851-val_loss=0.250.ckpt
