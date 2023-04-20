@@ -786,13 +786,14 @@ class PlaythroughDataModule(LightningDataModule):
                                                          batch_size=self.batch_size,
                                                          prompt_extra_len=0)  # DO NOT include the cmd after the prompt
                     if 'valid' in splitkey:
-                        print(f"NOTE: using {splitkey} dataset as .validaton_dataset")
+                        print(f"NOTE: using {splitkey} dataset as self.validaton_dataset.")
                         self.validation_dataset = eval_dataset
-                    else:
-                        print(f"NOTE: loaded {splitkey} -> eval_dataset. (might discard or use as .validation_dataset...")
-            if eval_dataset and not self.validation_dataset:  # (if only a test split has been loaded)
-                print("NOTE: using previously loaded eval_dataset as .validation_dataset")
-                self.validation_dataset = eval_dataset        # maybe use the test split as self.validation_dataset
+                    elif 'test' in splitkey:
+                        print(f"NOTE: loaded {splitkey} dataset as self.test_dataset.")
+                        self.test_dataset = eval_dataset
+            # if eval_dataset and not self.validation_dataset:  # (if only a test split has been loaded)
+            #     print("NOTE: using previously loaded eval_dataset as .validation_dataset")
+            #     self.validation_dataset = eval_dataset        # maybe use the test split as self.validation_dataset
 
         # else:   # load directly from .pthru text files
         #     encoded_data = self.read_and_encode(self.data_file)
@@ -855,6 +856,29 @@ class PlaythroughDataModule(LightningDataModule):
             pin_memory=True,
             persistent_workers=True if self.num_workers > 0 else False,
             collate_fn=lambda batch: validation_dataset.pad_collate_for_eval(batch)  #, align_cmds=False)
+        )
+        return loader
+
+    def test_dataloader(self):
+        if not self.test_dataset:
+            return None
+        else:
+            eval_dataset = self.test_dataset
+
+        # if self.validation_dataset.span_filtering == PlaythroughDataset.TARGET_CMD_PROMPTS:
+        #     batch_size = 1
+        # else:
+        #     batch_size = self.batch_size
+
+        loader = DataLoader(
+            eval_dataset,
+            batch_size=eval_dataset.batch_size,
+            shuffle=False,
+            num_workers=self.num_workers,
+            drop_last=False,
+            pin_memory=True,
+            persistent_workers=True if self.num_workers > 0 else False,
+            collate_fn=lambda batch: eval_dataset.pad_collate_for_eval(batch)  #, align_cmds=False)
         )
         return loader
 

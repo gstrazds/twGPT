@@ -345,7 +345,7 @@ def main(cfg: DictConfig) -> None:
     if cfg.eval.which_set == 'test':
         dataloader = _datamodule.test_dataloader()
     elif cfg.eval.which_set == 'valid':
-        dataloader = _datamodule.test_dataloader()
+        dataloader = _datamodule.val_dataloader()
     else:
         # assert False, f"eval_gpt with cfg.eval.which_set={cfg.eval.which_set} is not supported"
         if _datamodule.validation_dataset is None and dataset is not None:  # a hack to allow eval with train_dataset (see above)
