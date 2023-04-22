@@ -143,7 +143,7 @@ def grow_pthru_if_cmd_ok(pthru_so_far, prev_cmd, infos, reward, pthru_step):
     return pthru_so_far, False  # try a different command
 
 
-def play_game(gamename, pl_module, tokenizer, gamedir=TW_TRAINING_DIR, cmds=None, max_steps=45, using_internal_names=False):
+def play_game(gamename, pl_module, tokenizer, gamedir=TW_TRAINING_DIR, cmds=None, max_steps=45, using_internal_names=False, step_infos=None):
     _gamefile = f"{gamedir}/{gamename}.z8"
     #_gamefile = f"{gamedir}/{gamename}.json"
     _dones = [0]
@@ -157,7 +157,7 @@ def play_game(gamename, pl_module, tokenizer, gamedir=TW_TRAINING_DIR, cmds=None
     #                                                   raw_obs_feedback=False,  # simplify obs and feedback text
     #                                                   passive_oracle_mode=True,
     #                                                   use_internal_names=use_internal_names)
-    twenv, _obs, _infos = start_twenv_for_playthrough([_gamefile], pthru_cmds=cmds)
+    twenv, _obs, _infos = start_twenv_for_playthrough([_gamefile], pthru_cmds=cmds, step_infos=step_infos)
 
     if using_internal_names:
         map_names2ids = get_name2idmap(twenv.tw_oracle.get_game_data())
@@ -386,11 +386,13 @@ def main(cfg: DictConfig) -> None:
             print(f"[{total_played}]({idx}) ------------ PLAYING: {gn}")
             total_played += 1
             cmds_list = _datamodule.list_cmds(idx, split=cfg.eval.which_set)
-            print(f"#---- [{idx}] play_game({gn}) cmds_list={cmds_list}")
+            step_times = _datamodule.get_step_times(idx, split=cfg.eval.which_set)
+            print(f"#---- [{idx}] play_game({gn}) cmds_list={cmds_list} step_times={step_times}")
             num_steps, won, lost, stuck = play_game(gn, pl_model, tokenizer,
                                                     using_internal_names=cfg.data.use_internal_names,
                                                     gamedir=f"{cfg.eval.games_dir}",
-                                                    cmds=cmds_list)
+                                                    cmds=cmds_list,
+                                                    step_infos=step_times)
             if won:
                 n_steps = won
                 wins.append((n_steps,gn))

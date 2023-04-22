@@ -719,7 +719,7 @@ class PlaythroughDataModule(LightningDataModule):
             if not _check_skills_list(filepath):
                 _fix_skills_list(filepath)
 
-        _dataset = load_dataset('json', data_files=dsfiles)        # ,download_mode='force_redownload')
+        _dataset = load_dataset('json', data_files=dsfiles, download_mode='force_redownload')
         if self.max_pthru_steps and self.max_pthru_steps > 0:
             print("MAX_PTHRU_STEPS:", self.max_pthru_steps)
             for splitname in _dataset:  # don't include records that have trajectories longer than than max_pthru_steps
@@ -905,3 +905,18 @@ class PlaythroughDataModule(LightningDataModule):
         cmds_list = data_rec.split(']<<<')
         cmds_list = list(map(lambda s: s.split('>>>[')[-1].strip(), cmds_list[:-1]))
         return cmds_list
+
+    def get_step_times(self, idx, split='valid'):
+        assert self.tokenized_ds, "Only implemented for datasets loaded with load_from_textds()"
+        tok_ds = self.tokenized_ds[split]
+        if 'solver' in tok_ds.features:
+            solver_info = tok_ds['solver'][idx]
+            step_info_list = []
+            for rec in solver_info:
+                assert 'solver_time' in rec, f"{rec}"
+                assert 'solver_sat' in rec, f"{rec}"
+                step_info_list.append((rec['solver_time'], rec['solver_sat']))
+            return step_info_list
+        else:
+            print("-----NO SOLVER STEP INFO in dataset:", tok_ds)
+            return None

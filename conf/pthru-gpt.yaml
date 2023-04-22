@@ -50,7 +50,7 @@ model:
   n_layers: 8
   n_heads: 8
   d_embd: 512
-  hidden_layer_multiplier: 4          # used directly by xFormers framework
+  hidden_layer_multiplier: 4   # used directly by xFormers framework (and now also by mingpt)
   d_ff: null   # 2048 = ${.hidden_layer_multiplier}*${.d_embd}  # FF layer of transformer block
   dropout: 0.1
   embd_pdrop: ${.dropout}

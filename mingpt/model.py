@@ -81,15 +81,15 @@ class CausalSelfAttention(nn.Module):
 class Block(nn.Module):
     """ an unassuming Transformer block """
 
-    def __init__(self, d_embd, block_size, n_heads, attn_pdrop, resid_pdrop):
+    def __init__(self, d_embd, block_size, n_heads, attn_pdrop, resid_pdrop, hidden_layer_multiplier):
         super().__init__()
         self.ln1 = nn.LayerNorm(d_embd)
         self.ln2 = nn.LayerNorm(d_embd)
         self.attn = CausalSelfAttention(d_embd, block_size, n_heads, attn_pdrop, resid_pdrop)
         self.mlp = nn.Sequential(
-            nn.Linear(d_embd, 4 * d_embd),
+            nn.Linear(d_embd, hidden_layer_multiplier * d_embd),
             nn.GELU(),
-            nn.Linear(4 * d_embd, d_embd),
+            nn.Linear(hidden_layer_multiplier * d_embd, d_embd),
             nn.Dropout(resid_pdrop),
         )
 
@@ -109,6 +109,7 @@ class GPT(nn.Module):
                  embd_pdrop: float = 0.1,  # \in [0,1]: amount of dropout on input embeddings
                  resid_pdrop: float = 0.1,  # \in [0,1]: amount of dropout in each residual connection
                  attn_pdrop: float = 0.1,  # \in [0,1]: amount of dropout on the attention matrix
+                 hidden_layer_multiplier: int = 4,  # each block scales up to d_embd * hidden_layer_multiplier
                  **kwargs  # ignore any extra named args
                  ):
         super().__init__()
@@ -121,7 +122,7 @@ class GPT(nn.Module):
         self.pos_emb = nn.Parameter(torch.zeros(1, block_size, d_embd))
         self.drop = nn.Dropout(embd_pdrop)
         # transformer
-        self.blocks = nn.Sequential(*[Block(d_embd, block_size, n_heads, attn_pdrop, resid_pdrop) for _ in range(n_layers)])
+        self.blocks = nn.Sequential(*[Block(d_embd, block_size, n_heads, attn_pdrop, resid_pdrop, hidden_layer_multiplier) for _ in range(n_layers)])
         # decoder head
         self.ln_f = nn.LayerNorm(d_embd)
         self.head = nn.Linear(d_embd, vocab_size, bias=False)
