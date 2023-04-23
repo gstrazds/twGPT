@@ -65,6 +65,8 @@ class GPTLitModule(pl.LightningModule):
         cfg.cwd_path = hydra.utils.to_absolute_path(cfg.cwd_path)
         if not cfg.model.d_ff:
             cfg.model.d_ff = cfg.model.d_embd * cfg.model.hidden_layer_multiplier
+        if not cfg.eval.max_steps:
+            cfg.eval.max_steps = cfg.data.max_pthru_steps+20
 
     @staticmethod
     def adjust_cfg_vocab(cfg, dataset):
