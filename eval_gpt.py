@@ -116,6 +116,8 @@ def grow_pthru_if_cmd_ok(pthru_so_far, prev_cmd, infos, reward, pthru_step):
     return pthru_so_far, False  # try a different command
 
 
+
+
 def play_game(gamename, pl_module, tokenizer, gamedir=TW_TRAINING_DIR, cmds=None, max_steps=45, using_internal_names=False, step_infos=None):
     _gamefile = f"{gamedir}/{gamename}.z8"
     #_gamefile = f"{gamedir}/{gamename}.json"
@@ -138,11 +140,15 @@ def play_game(gamename, pl_module, tokenizer, gamedir=TW_TRAINING_DIR, cmds=None
         map_names2ids = None
     agent_kg = twenv.tw_oracle.gi.kg
 
-    # step_json = playthrough_step_to_json(next_cmds, _dones, _infos, _obs, _rewards, num_steps)
-    playthru_step_data = playthrough_step_to_json(next_cmds, _dones, _infos, _obs, _rewards, num_steps)
+    if hasattr(twenv, "tw_oracle"):
+        cmd_histories = [twenv.tw_oracle.cmd_history.copy()]  #.copy()
+    else:
+        cmd_histories = None
+    playthru_step_data = playthrough_step_to_json(next_cmds, _dones, _infos, _obs, _rewards, num_steps, cmd_histories)
     # playthru_step_data is a list of list of json dicts (with data for a single game step),
     #   one entry for each game in the batch
     step_json = playthru_step_data[0]
+
     _, pthru_step = format_step_json(agent_kg, step_json, map_names2ids=map_names2ids)
     print(f"play_game({_gamefile}, max_steps={max_steps}) -- initial step: {pthru_step}")
     pthru_so_far, cmd_was_ok = grow_pthru_if_cmd_ok(pthru_so_far,
@@ -166,9 +172,13 @@ def play_game(gamename, pl_module, tokenizer, gamedir=TW_TRAINING_DIR, cmds=None
     lost = None
     stuck = None
     while not all(_dones) and num_steps < max_steps:
+        if hasattr(twenv, "tw_oracle"):
+            cmd_histories = [twenv.tw_oracle.cmd_history.copy()]  # .copy() just to be safe
+        else:
+            cmd_histories = None
         # _obs, _rewards, _dones, _infos = step_gym_for_playthrough(gymenv, next_cmds)
         _obs, _rewards, _dones, _infos = step_twenv_for_playthrough(twenv, next_cmds)
-        playthru_step_data = playthrough_step_to_json(next_cmds, _dones, _infos, _obs, _rewards, num_steps)
+        playthru_step_data = playthrough_step_to_json(next_cmds, _dones, _infos, _obs, _rewards, num_steps, cmd_histories)
         #   returned list has one entry for each game in the batch
         step_json = playthru_step_data[0]
         prev_cmd = next_cmds[0]
