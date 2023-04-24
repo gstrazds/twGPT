@@ -19,7 +19,7 @@ from pytorch_lightning.utilities import rank_zero_info
 from twutils.playthroughs import TW_TRAINING_DIR, CMD_START_TOKEN, CMD_END_TOKEN, GAME_START_CMD
 from twutils.playthroughs import start_twenv_for_playthrough, step_twenv_for_playthrough
 from twutils.playthroughs import playthrough_step_to_json, format_playthrough_step, concat_pthru_step
-from twutils.twlogic import get_name2idmap, subst_names
+from twutils.twlogic import get_name2idmap, subst_names, check_cmd_failed
 
 from mingpt.pthru_dataset import PlaythroughDataModule
 from mingpt.pl_module import GPTLitModule
@@ -103,45 +103,16 @@ def format_step_json(agent_kg, step_json, map_names2ids=None):
     return outstr, pthru
 
 
-def _first_word_of(cmd_str:str):
-    words = cmd_str.split()
-    if words:
-        return words[0]
-    return cmd_str
-
-
 def grow_pthru_if_cmd_ok(pthru_so_far, prev_cmd, infos, reward, pthru_step):
     feedback = infos['feedback'][0]
-    feedback = feedback.lower()
-    if reward > 0:
-        cmd_was_ok = True
-    elif feedback.startswith(f'you {_first_word_of(prev_cmd)} '):
-        cmd_was_ok = True
-    elif feedback.startswith("you can't"):
-        cmd_was_ok = False
-    elif feedback.startswith('you need to'):
-        cmd_was_ok = False
-    elif feedback.startswith('you already'):
-        cmd_was_ok = False
-    elif feedback.startswith("you haven't"):
-        cmd_was_ok = False
-    elif feedback.startswith('i '):
-        cmd_was_ok = False
-    elif feedback.startswith('what do'):
-        cmd_was_ok = False
-    elif feedback.startswith('which do'):
-        cmd_was_ok = False
-    elif feedback.startswith('can only'):
-        cmd_was_ok = False
-    else:
-        cmd_was_ok = True
 
-    if not cmd_was_ok:
+    cmd_failed = check_cmd_failed(prev_cmd, feedback, reward)
+    if cmd_failed:
         print(f"%%% CMD NOT OK: |{prev_cmd}| [{pthru_step}]:", feedback)
     # if True:  ... return new_pthru, True # TEMPORARY ABLATION HACK (retry strategy very rarely help, just wastes time)
-    if cmd_was_ok:
+    if not cmd_failed:
         new_pthru = concat_pthru_step(pthru_so_far, pthru_step, keep_objectives=True)
-        return new_pthru, cmd_was_ok  # caller doesn't need to try anything different
+        return new_pthru,  not cmd_failed # caller doesn't need to try anything different
     return pthru_so_far, False  # try a different command
 
 
@@ -255,6 +226,8 @@ def play_game(gamename, pl_module, tokenizer, gamedir=TW_TRAINING_DIR, cmds=None
     print(pthru_so_far)
     if not won and not lost:
         stuck = step_num
+    if hasattr(twenv, "tw_oracle"):
+        print(gamename, twenv.tw_oracle.cmd_history)
     twenv.close()
     return num_steps, won, lost, stuck
 
