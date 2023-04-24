@@ -767,7 +767,7 @@ class PlaythroughDataModule(LightningDataModule):
 
     def get_room_tokens(self):
         tokens_list = []
-        for i in range(20):
+        for i in range(1,20):  # leave r_0 (kitchen) alone, because it's special (cooking location, for prepare meal)
             tok_id = self.tokenizer.convert_tokens_to_ids(f"r_{i}")
             if tok_id is not None and tok_id != self.tokenizer.unk_token_id:
                 tokens_list.append(tok_id)
