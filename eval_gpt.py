@@ -267,9 +267,9 @@ def main(cfg: DictConfig) -> None:
 
     rank_zero_info(f"original_cwd: {hydra.utils.get_original_cwd()}")
 
-    logger = None
-    if True:
-        fh = logging.FileHandler(',', 'a')
+    logger = logging.getLogger()
+    if False:
+        fh = logging.FileHandler('eval_log', 'a')
         fh.setLevel(logging.DEBUG)
         # create console handler with a higher log level
         ch = logging.StreamHandler()
