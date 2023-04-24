@@ -79,6 +79,7 @@ trainer:
   decay_multiplier: 8
   decay_tokens: null #{trainer.decay_multiplier}*{model.block_size}*${len(dataset)}  # set by caller after loading training data
   eval_predict: true
+  permute_tokens: false
 
 eval:
   dataset_dir: ${data.dataset_dir}

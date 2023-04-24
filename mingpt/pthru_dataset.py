@@ -52,6 +52,8 @@ class PlaythroughDataset(Dataset):
         self.pad_tok = pad_tok
         self.span_filtering = span_filtering
         self.prompt_extra_len = prompt_extra_len if prompt_extra_len is not None else -10
+        self.tokens_to_permute = None
+        self.tokens_to_permute2 = None
 
         assert cmd_markers, "REQUIRED: token ids for cmd_start, cmd_end"
         print("cmd_markers = ", cmd_markers)
@@ -242,8 +244,7 @@ class PlaythroughDataset(Dataset):
 
             if self.span_filtering == PlaythroughDataset.TARGET_CMD_PROMPTS:
                 igame, istep, _nsteps_ = self.get_game_step(idx)
-                start_idx, output_len, cmd_start_idx, cmd_len = self.get_cmd_prompt_for_gamestep(igame, istep,
-                                                                                        fetch_data=False,
+                start_idx, output_len, cmd_start_idx, cmd_len = self.get_cmd_prompt_for_gamestep(igame, istep, fetch_data=False,
                                                                                         block_size=(-1 if self.prompt_extra_len else 0),
                                                                                         continuation=self.prompt_extra_len)  # +random extra len from 0 to N
                 # if False:
@@ -296,7 +297,7 @@ class PlaythroughDataset(Dataset):
         y = torch.tensor(chunk[1:], dtype=torch.long)
         return x, y
 
-    def get_cmd_prompt_for_gamestep(self, igame:int, istep:int, continuation=-1, fill_id=None, fetch_data=True,
+    def get_cmd_prompt_for_gamestep(self, igame:int, istep:int, continuation=-1, fill_id=None, fetch_data=False,
                                     block_size: int = -1  # default: self.block_size ;
                                     # if block_size==0: return continuation as y instead of merging it into x
                                     ):
@@ -415,7 +416,14 @@ class PlaythroughDataset(Dataset):
         return (start_idx, output_len, cmd_start_idx)
         # return self.get_data_tensor(start_idx, output_len, cmd_start_idx, pad_left)
 
-    def _get_data_tensors(self, start_idx, output_len, buffer_size, cmd_start_idx, pad_left=0, fill_id=0):
+    def permute_tokens(self, buf, permutation, tokens_to_permute):
+        assert len(permutation) == len(tokens_to_permute)
+        # TODO: ?maybe optimize
+        for i in range(len(buf)):
+            if buf[i] in tokens_to_permute:
+                buf[i] = tokens_to_permute[permutation[tokens_to_permute.index(buf[i])]]
+
+    def _get_data_tensors(self, start_idx, output_len, buffer_size, cmd_start_idx, pad_left=0, fill_id=0, permute_tokens=False):
         if pad_left > 0:    # output_len < self.block_size:
             #logger.info(f"_get_data_tensors(pad_left) {start_idx} {output_len} {buffer_size} {self.data.shape}")
             x_out = np.full(buffer_size, fill_value=fill_id)
@@ -442,6 +450,19 @@ class PlaythroughDataset(Dataset):
         if pad_left:
             cmd_start_pos += pad_left
         # print(x_out)
+        if permute_tokens:
+            if self.tokens_to_permute and len(self.tokens_to_permute):
+                # every batch record will have a different permutation applied
+                _permute = np.random.permutation(len(self.tokens_to_permute))
+                # print(f"permuting tokens {self.tokens_to_permute} with permutation: {_permute}")
+                self.permute_tokens(x_out, _permute, self.tokens_to_permute)
+                self.permute_tokens(y_out, _permute, self.tokens_to_permute)
+            if self.tokens_to_permute2 and len(self.tokens_to_permute2):
+                # every batch record will have a different permutation applied
+                _permute = np.random.permutation(len(self.tokens_to_permute2))
+                # print(f"permuting tokens {self.tokens_to_permute2} with permutation: {_permute}")
+                self.permute_tokens(x_out, _permute, self.tokens_to_permute2)
+                self.permute_tokens(y_out, _permute, self.tokens_to_permute2)
         return torch.tensor(x_out, dtype=torch.long), torch.tensor(y_out, dtype=torch.long), cmd_start_pos
 
     def pad_collate(self, batch):
@@ -465,7 +486,7 @@ class PlaythroughDataset(Dataset):
                 logger.error(err_msg)
                 assert False, err_msg
             x, y, cmd_pos = self._get_data_tensors(start_idx, output_len, max_output_len, cmd_start_idx,
-                                                       pad_left=0, fill_id=self.pad_tok)
+                                                       pad_left=0, fill_id=self.pad_tok, permute_tokens=True)
             xx.append(x)
             yy.append(y)
             cmd_start_pos.append(cmd_pos)
@@ -584,8 +605,8 @@ class PlaythroughDataset(Dataset):
                 x, y, cmd_pos = self._get_data_tensors(start_idx, output_len, max_output_len, cmd_start_idx,
                                                        pad_left=0, fill_id=self.pad_tok)
 
-            xx.append(x);
-            yy.append(y);
+            xx.append(x)
+            yy.append(y)
             cmd_start_pos.append(cmd_pos), cmd_len.append(_cmd_len)
 
         xx_pad = pad_sequence(xx, batch_first=True, padding_value=self.pad_tok)
@@ -652,6 +673,7 @@ class PlaythroughDataModule(LightningDataModule):
         max_pthru_steps=MAX_PTHRU_STEPS,
         filter_out_skills=None,
         which_games=None,   # 'ftwc' or 'gata' or None(=both ftwc + gata)
+        permute_training_toks=False,
         *args,
         **kwargs,
     ):
@@ -685,6 +707,9 @@ class PlaythroughDataModule(LightningDataModule):
         self.max_pthru_steps = max_pthru_steps
         self.filter_out_skills = filter_out_skills
         self.which_games = which_games
+        self.permute_training_toks = permute_training_toks
+        # self.tokens_to_permute = None
+        # self.tokens_to_permute2 = None
 
     # def read_and_encode(self, filepath):
     #     with open(filepath, 'r') as file:
@@ -740,6 +765,22 @@ class PlaythroughDataModule(LightningDataModule):
         print(tokenized_ds)
         return tokenized_ds
 
+    def get_room_tokens(self):
+        tokens_list = []
+        for i in range(20):
+            tok_id = self.tokenizer.convert_tokens_to_ids(f"r_{i}")
+            if tok_id is not None and tok_id != self.tokenizer.unk_token_id:
+                tokens_list.append(tok_id)
+        return tokens_list
+
+    def get_food_tokens(self):
+        tokens_list = []
+        for i in range(30):
+            tok_id = self.tokenizer.convert_tokens_to_ids(f"f_{i}")
+            if tok_id is not None and tok_id != self.tokenizer.unk_token_id:
+                tokens_list.append(tok_id)
+        return tokens_list
+
     def prepare_data(self):
         """
         """
@@ -775,6 +816,12 @@ class PlaythroughDataModule(LightningDataModule):
                                                             span_filtering=self.train_filtering,  #PlaythroughDataset.TARGET_CMD_TOKENS)
                                                             batch_size=self.batch_size,
                                                             prompt_extra_len=-10)  # include extra len after cmd (random range(0,-10)
+                    if self.permute_training_toks:
+                        food_tok_ids = self.get_food_tokens()
+                        self.train_dataset.tokens_to_permute = food_tok_ids
+                        room_tok_ids = self.get_room_tokens()
+                        self.train_dataset.tokens_to_permute2 = room_tok_ids
+                        print(f"permute food items:{food_tok_ids} rooms:{room_tok_ids}")
                 else:
             # print(eval_encoded_ids[:100])
                     eval_dataset = PlaythroughDataset(encoded_data_ids, self.block_size,

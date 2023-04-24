@@ -479,7 +479,7 @@ def debug_print_some_spans(dataset):
         for j in range(num_steps):
             print(f"\tcmd_span[{game_span[0] + j}] {dataset.cmd_spans[game_span[0] + j]}", end=' ')
             print(f"{dataset.get_token_spans(i, 0, j + 1, inclusive=(True, True))[0]}")
-            # print("cmd_prompt_for_gamestep:", dataset.get_cmd_prompt_for_gamestep(i,j))
+            # print("cmd_prompt_for_gamestep:", dataset.get_cmd_prompt_for_gamestep(i,j,fetch_data=True))
         print("Game", i, "token span:", dataset.get_token_spans(i))
         print()
     # print the same info for the last game in the dataset
