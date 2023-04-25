@@ -58,6 +58,7 @@ model:
   attn_pdrop: ${.dropout}
   mlp_pdrop: ${.dropout}      # used by xFormers framework
   vocab_size: 0     # gets filled in after we load the vocabulary
+  pathtrace: false  # add summary of recent navigation steps to context/prompt
 #  dt_type: reward_conditioned    # Decision Transformer: reward_conditioned or naive
 #  max_timestep: None    # Decision Transformer: max num steps for an episode (for global pos embeddings)
 

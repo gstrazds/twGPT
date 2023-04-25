@@ -118,7 +118,9 @@ def grow_pthru_if_cmd_ok(pthru_so_far, prev_cmd, infos, reward, pthru_step):
 
 
 
-def play_game(gamename, pl_module, tokenizer, gamedir=TW_TRAINING_DIR, cmds=None, max_steps=45, using_internal_names=False, step_infos=None):
+def play_game(gamename, pl_module, tokenizer, gamedir=TW_TRAINING_DIR,
+              cmds=None, max_steps=45, using_internal_names=False,
+              step_infos=None, with_pathtrace=False):
     _gamefile = f"{gamedir}/{gamename}.z8"
     #_gamefile = f"{gamedir}/{gamename}.json"
     _dones = [0]
@@ -140,11 +142,8 @@ def play_game(gamename, pl_module, tokenizer, gamedir=TW_TRAINING_DIR, cmds=None
         map_names2ids = None
     agent_kg = twenv.tw_oracle.gi.kg
 
-    if hasattr(twenv, "tw_oracle"):
-        cmd_histories = [twenv.tw_oracle.cmd_history.copy()]  #.copy()
-    else:
-        cmd_histories = None
-    playthru_step_data = playthrough_step_to_json(next_cmds, _dones, _infos, _obs, _rewards, num_steps, cmd_histories)
+    playthru_step_data = playthrough_step_to_json(next_cmds, _dones, _infos, _obs, _rewards,
+                                                  num_steps, env=twenv, pathtrace=with_pathtrace)
     # playthru_step_data is a list of list of json dicts (with data for a single game step),
     #   one entry for each game in the batch
     step_json = playthru_step_data[0]
@@ -172,13 +171,10 @@ def play_game(gamename, pl_module, tokenizer, gamedir=TW_TRAINING_DIR, cmds=None
     lost = None
     stuck = None
     while not all(_dones) and num_steps < max_steps:
-        if hasattr(twenv, "tw_oracle"):
-            cmd_histories = [twenv.tw_oracle.cmd_history.copy()]  # .copy() just to be safe
-        else:
-            cmd_histories = None
         # _obs, _rewards, _dones, _infos = step_gym_for_playthrough(gymenv, next_cmds)
         _obs, _rewards, _dones, _infos = step_twenv_for_playthrough(twenv, next_cmds)
-        playthru_step_data = playthrough_step_to_json(next_cmds, _dones, _infos, _obs, _rewards, num_steps, cmd_histories)
+        playthru_step_data = playthrough_step_to_json(next_cmds, _dones, _infos, _obs, _rewards,
+                                                      num_steps, env=twenv, pathtrace=with_pathtrace)
         #   returned list has one entry for each game in the batch
         step_json = playthru_step_data[0]
         prev_cmd = next_cmds[0]
@@ -376,13 +372,15 @@ def main(cfg: DictConfig) -> None:
             total_played += 1
             cmds_list = _datamodule.list_cmds(idx, split=cfg.eval.which_set)
             step_times = _datamodule.get_step_times(idx, split=cfg.eval.which_set)
-            print(f"#---- [{idx}] play_game({gn}, max_steps={cfg.eval.max_steps}) cmds_list={cmds_list} step_times={step_times}")
+            print(f"#---- [{idx}] play_game({gn}, max_steps={cfg.eval.max_steps})"
+                  f" cmds_list={cmds_list} step_times={step_times} with_pathtrace={cfg.model.pathtrace}")
             num_steps, won, lost, stuck = play_game(gn, pl_model, tokenizer,
                                                     using_internal_names=cfg.data.use_internal_names,
-                                                    gamedir=f"{cfg.eval.games_dir}",
+                                                    gamedir=str(cfg.eval.games_dir),
                                                     max_steps=cfg.eval.max_steps,
                                                     cmds=cmds_list,
-                                                    step_infos=step_times)
+                                                    step_infos=step_times,
+                                                    with_pathtrace=cfg.model.pathtrace)
             if won:
                 n_steps = won
                 wins.append((n_steps,gn))
