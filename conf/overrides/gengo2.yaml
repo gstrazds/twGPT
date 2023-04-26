@@ -67,6 +67,6 @@ eval:
   #checkpoint: ${cwd_path}/saved_models/2023-04-24-14-17/mingpt:gpt:pthru-epoch=6-step=7437-val_acc=0.682-val_loss=0.346.ckpt
 
   #Apr25 (data.datset_dir ..../alt2_combined ; model.pathtrace=true)
-  checkpoint: ${cwd_path}/saved_models/2023-04-25-17-00/mingpt:gpt:pthru-epoch=10-step=11442-val_acc=0.876-val_loss=0.254.ckpt [NEW BEST-SO-FAR]
+  checkpoint: ${cwd_path}/saved_models/2023-04-25-17-00/mingpt:gpt:pthru-epoch=10-step=11442-val_acc=0.876-val_loss=0.254.ckpt #[NEW BEST-SO-FAR]
   #Apr25b (data.dataset_dir .../alt_combined ; model.pathtrace=false)
   #checkpoint: ${cwd_path}/saved_models/2023-04-25-22-03/mingpt:gpt:pthru-epoch=6-step=7588-val_acc=0.833-val_loss=0.233.ckpt
