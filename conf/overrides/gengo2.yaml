@@ -12,7 +12,7 @@ data:
 #  tokenizer_file: ${.dataset_dir}/combined_tokenizer.json   #ftwc_tokenizer_new.json
 #  num_workers: 0  # > 0 when using ddp and multiple gpus
 #  train_filtering: cmd_prompts  # cmd_tokens, cmd_prompts
-#  max_pthru_steps: 30
+  max_pthru_steps: 35
   filter_out_skills:  # a list of skill types to exclude from the dataset for training / eval
     - drop
   use_internal_names: true
@@ -25,23 +25,27 @@ model:
 #  n_layers: 8
   n_heads: 8
   d_embd: 512
+  pathtrace: false
 
 trainer:
   batch_size: 8
   max_epochs: 20
   learning_rate: 3e-4
-  patience: 30
+  patience: 40
   save_top_k: 25
   val_check_interval: 0.1
 #  limit_val_batches: 10000  # this should cover all of our current validation set (but maybe not the test set?)
   decay_multiplier: 5
+  permute_names: false
 
 eval:
+  max_steps: 45
   play_games: false
   which_games: gata   # gata or ftwc
   which_set: valid    # valid or test
   root_dir: /work2/gstrazds/twdata/${eval.which_games}  # /ssd2tb/twdata
   ds_filename: gata_${.which_set}  #defaults to which_set (which is correct for ftwc, but not for gata)
+
   #checkpoint: ${cwd_path}/saved_models/2023-04-10-20-32-0/mingpt:gpt:pthru-epoch=5-step=6374-val_acc=0.844-val_loss=0.227.ckpt
   #checkpoint: ${cwd_path}/saved_models/2023-04-11-X/mingpt:gpt:pthru-epoch=7-step=8182-val_acc=0.674-val_loss=0.220.ckpt
   #checkpoint: ${cwd_path}/saved_models/2023-04-11-X/mingpt:gpt:pthru-epoch=4-step=5205-val_acc=0.660-val_loss=0.212.ckpt
@@ -49,7 +53,19 @@ eval:
   #checkpoint: ${cwd_path}/saved_models/2023-04-13-11-43/mingpt:gpt:pthru-epoch=6-step=6801-val_acc=0.842-val_loss=0.242.ckpt
   #checkpoint: ${cwd_path}/saved_models/2023-04-19-18-10-0/mingpt:gpt:pthru-epoch=4-step=5205-val_acc=0.810-val_loss=0.170.ckpt
   #checkpoint: ${cwd_path}/saved_models/2023-04-20-11-12/mingpt:gpt:pthru-epoch=8-step=8609-val_acc=0.850-val_loss=0.234.ckpt #Apr20b [best-ftwc-test]
-  checkpoint: ${cwd_path}/saved_models/2023-04-20-11-12/mingpt:gpt:pthru-epoch=9-step=9990-val_acc=0.851-val_loss=0.250.ckpt #Apr20 [best-so-far]
+  #checkpoint: ${cwd_path}/saved_models/2023-04-20-11-12/mingpt:gpt:pthru-epoch=9-step=9990-val_acc=0.851-val_loss=0.250.ckpt #Apr20 [best-so-far]
+  #checkpoint: ${cwd_path}/saved_models/2023-04-24-06-35/mingpt:gpt:pthru-epoch=1-step=2262-val_acc=0.502-val_loss=0.409.ckpt
+  #checkpoint: ${cwd_path}/saved_models/2023-04-24-08-51/mingpt:gpt:pthru-epoch=6-step=7437-val_acc=0.682-val_loss=0.346.ckpt #Apr24b.out
+  #checkpoint: ${cwd_path}/saved_models/2023-04-24-08-51/mingpt:gpt:pthru-epoch=9-step=10414-val_acc=0.682-val_loss=0.381.ckpt #Apr24b2.out
   #(Apr20c)checkpoint: ${cwd_path}/saved_models/2023-04-20-16-29/mingpt:gpt:pthru-epoch=8-step=9139-val_acc=0.869-val_loss=0.254.ckpt
   #(Apr20c2)checkpoint: ${cwd_path}/saved_models/2023-04-20-16-29/mingpt:gpt:pthru-epoch=8-step=9457-val_acc=0.868-val_loss=0.270.ckpt
   #(Apr20d)checkpoint: ${cwd_path}/saved_models/2023-04-20-22-53/mingpt:gpt:pthru-epoch=5-step=7163-val_acc=0.821-val_loss=0.253.ckpt
+
+  #Apr24d
+  #checkpoint: ${cwd_path}/saved_models/2023-04-24-14-17/mingpt:gpt:pthru-epoch=11-step=12752-val_acc=0.680-val_loss=0.432.ckpt
+  #checkpoint: ${cwd_path}/saved_models/2023-04-24-14-17/mingpt:gpt:pthru-epoch=9-step=10414-val_acc=0.682-val_loss=0.381.ckpt
+  #checkpoint: ${cwd_path}/saved_models/2023-04-24-14-17/mingpt:gpt:pthru-epoch=6-step=7437-val_acc=0.682-val_loss=0.346.ckpt
+  #Apr25
+  checkpoint: ${cwd_path}/saved_models/2023-04-25-17-00/mingpt:gpt:pthru-epoch=10-step=11442-val_acc=0.876-val_loss=0.254.ckpt
+  #Apr25b
+  checkpoint: ${cwd_path}/saved_models/2023-04-25-22-03/mingpt:gpt:pthru-epoch=6-step=7588-val_acc=0.833-val_loss=0.233.ckpt
