@@ -8,7 +8,7 @@ gpus:  # set to a single int n to auto-select n gpus from all available, or to a
   - 3
 
 data:
-  dataset_dir: /work2/gstrazds/twdata/alt_combined   # dataset_dir: /work2/gstrazds/twdata/data_combined
+  dataset_dir: /work2/gstrazds/twdata/alt2_combined   # dataset_dir: /work2/gstrazds/twdata/data_combined
 #  tokenizer_file: ${.dataset_dir}/combined_tokenizer.json   #ftwc_tokenizer_new.json
 #  num_workers: 0  # > 0 when using ddp and multiple gpus
 #  train_filtering: cmd_prompts  # cmd_tokens, cmd_prompts
@@ -25,7 +25,7 @@ model:
 #  n_layers: 8
   n_heads: 8
   d_embd: 512
-  pathtrace: false
+  pathtrace: true
 
 trainer:
   batch_size: 8
@@ -67,6 +67,6 @@ eval:
   #checkpoint: ${cwd_path}/saved_models/2023-04-24-14-17/mingpt:gpt:pthru-epoch=6-step=7437-val_acc=0.682-val_loss=0.346.ckpt
 
   #Apr25 (data.datset_dir ..../alt2_combined ; model.pathtrace=true)
-  #checkpoint: ${cwd_path}/saved_models/2023-04-25-17-00/mingpt:gpt:pthru-epoch=10-step=11442-val_acc=0.876-val_loss=0.254.ckpt [NEW BEST-SO-FAR]
-  #Apr25b (data.dataset_dir .../alt_combined ; model.pathtrace=true)
-  checkpoint: ${cwd_path}/saved_models/2023-04-25-22-03/mingpt:gpt:pthru-epoch=6-step=7588-val_acc=0.833-val_loss=0.233.ckpt
+  checkpoint: ${cwd_path}/saved_models/2023-04-25-17-00/mingpt:gpt:pthru-epoch=10-step=11442-val_acc=0.876-val_loss=0.254.ckpt [NEW BEST-SO-FAR]
+  #Apr25b (data.dataset_dir .../alt_combined ; model.pathtrace=false)
+  #checkpoint: ${cwd_path}/saved_models/2023-04-25-22-03/mingpt:gpt:pthru-epoch=6-step=7588-val_acc=0.833-val_loss=0.233.ckpt
