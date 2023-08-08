@@ -32,6 +32,7 @@ class GPTLitModule(pl.LightningModule):
         self.cmd_start_marker = None   # need to call set_cmd_markers() before running validation_step()
         self.cmd_end_marker = None
         self.transpose_batches = False
+        self.val_output_list = []   # for accumulating validation metrics across batches
 
         if config.use_framework == 'dt':
             from .model_xf import GPTdt
@@ -225,9 +226,16 @@ class GPTLitModule(pl.LightningModule):
         metrics['n_cmds'] = n_cmds
         # self.log('cmd_exact_match', n_matched_cmds, on_step=True, on_epoch=True, prog_bar=True)
         metrics['cmd_exact_match'] = n_matched_cmds
-        return metrics
+        self.val_output_list.append(metrics)
+        return
 
-    def validation_epoch_end(self, outs):
+    def on_validation_epoch_start(self) -> None:
+        super().on_validation_epoch_start()
+        self.val_output_list = []
+        return
+
+    def on_validation_epoch_end(self):
+        outs = self.val_output_list
         # print("validation_epoch_end LENGTH outs=", len(outs))
         # print("outs [cmd_exact_match]=", [x['cmd_exact_match'] for x in outs])
         if 'val_loss' in outs[0]:

@@ -26,8 +26,10 @@ gpus:  1 # a single int n to auto-select n gpus from those available, or else a 
 general:
   random_seed: 42
 
+home_dir: ${oc.env:HOME}
+
 data:
-  dataset_dir: /ssd2tb/twdata/data_combined
+  dataset_dir: ${home_dir}/work2/twdata/data_combined
   # data_file: ${cwd_path}/tw-cooking-recipe3+take3+cut+go6-Z7L8CvEPsO53iKDg.pthru  #
   #data_file: ${cwd_path}/mingpt-training-all.pthru   #gata-train-all.pthru  #
   #val_file:  ${cwd_path}/mingpt-valid-all.pthru  # gata|mingpt-valid-all.pthru
@@ -47,7 +49,7 @@ model:
   arch: gpt
   attention_type: scaled_dot_product  # for xFormers (xf) framework
   block_size: 128  # aka seq_len or 'attention window size'
-  n_layers: 8
+  n_layers: 7
   n_heads: 8
   d_embd: 512
   hidden_layer_multiplier: 4   # used directly by xFormers framework (and now also by mingpt)
@@ -98,7 +100,7 @@ eval:
   which_set: valid    # valid or test
   max_steps: null     # if null, eval_gpt sets this to ${data.max_steps+20}
   ds_filename: ${.which_set}   # to load just a specific gata dataset: gata_${.which_set}
-  root_dir: /ssd2tb/twdata/${eval.which_games}  # /ssd2tb/twdata/ftwc
+  root_dir: ${home_dir}/twdata/${eval.which_games}  # /ssd2tb/twdata/ftwc
   pthru_data_dir: ${.root_dir}/playthru_data    #..../${.which_games}_${.which_set}  #mingpt-${eval.which_set}
   games_dir: ${.root_dir}/games_${.which_games}/${.which_set}/
   show_samples: false   # ${trainer.eval_predict}

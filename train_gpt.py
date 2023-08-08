@@ -137,7 +137,7 @@ def train_gpt(cfg: DictConfig) -> None:
         loggers_list.append(wandb_logger)
 
 
-    trainer = pl.Trainer(gpus=cfg.gpus,
+    trainer = pl.Trainer(devices=cfg.gpus,
                          max_epochs=cfg.trainer.max_epochs,
                          val_check_interval=cfg.trainer.val_check_interval,
                          limit_val_batches=cfg.trainer.limit_val_batches,
