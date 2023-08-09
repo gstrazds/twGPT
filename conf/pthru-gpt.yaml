@@ -100,7 +100,7 @@ eval:
   which_set: valid    # valid or test
   max_steps: null     # if null, eval_gpt sets this to ${data.max_steps+20}
   ds_filename: ${.which_set}   # to load just a specific gata dataset: gata_${.which_set}
-  root_dir: ${home_dir}/twdata/${eval.which_games}  # /ssd2tb/twdata/ftwc
+  root_dir: ${home_dir}/work2/twdata/${eval.which_games}  # /ssd2tb/twdata/ftwc
   pthru_data_dir: ${.root_dir}/playthru_data    #..../${.which_games}_${.which_set}  #mingpt-${eval.which_set}
   games_dir: ${.root_dir}/games_${.which_games}/${.which_set}/
   show_samples: false   # ${trainer.eval_predict}
